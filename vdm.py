@@ -32,7 +32,7 @@ def main(args):
             for p, plane in enumerate(scan.nominal_sep_plane.unique()):
                 for b, sep in enumerate(scan.sep.unique()):
                     period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
-                    
+
                     r = np.array([r['bxraw'][collidable] for r in f.root[args.luminometer].where(period_of_scanpoint)])
                     beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)])
                     new_rates = pd.DataFrame(np.array([r.mean(axis=0), beam.mean(axis=0)]).T, columns=['rate', 'beam'])
