@@ -77,12 +77,10 @@ def main(args):
                     plt.plot(x_dense, gaussian(x_dense, *m.values), 'k')
 
                     fit_info = [f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(data_x) - m.nfit}']
-
                     for param, v, e in zip(m.parameters, m.values, m.errors):
                         fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
 
                     plt.legend(title='\n'.join(fit_info))
-
                     pdf.savefig()
 
         fit_results.cap_sigma *= 1e3 # to µm
