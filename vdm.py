@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import numpy as np
 import tables
@@ -5,26 +7,21 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
-import mplhep as hep
-
-plt.style.use(hep.style.CMS)
 
 def gaussian(x, peak, mean, cap_sigma):
     return peak*np.exp(-(x-mean)**2/(2*cap_sigma**2))
+
+os.makedirs('output', exist_ok=True)
 
 data = pd.DataFrame()
 with tables.open_file('7525_2110302352_2110310014.hd5', 'r') as f:
     data['timestampsec'] = [r['timestampsec'] for r in f.root.beam.where('timestampsec > 0')]
 
-    # beam
     collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding
-    #bxintensity1 = np.array([r['bxintensity1'][collidable] for r in f.root.beam.where('timestampsec > 0')])
-    #bxintensity2 = np.array([r['bxintensity2'][collidable] for r in f.root.beam.where('timestampsec > 0')])
 
     data['intensity1'] = [r['intensity1'] for r in f.root.beam.where('timestampsec > 0')]
     data['intensity2'] = [r['intensity2'] for r in f.root.beam.where('timestampsec > 0')]
 
-    # scan
     scan = pd.DataFrame()
     scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
     scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
@@ -32,45 +29,40 @@ with tables.open_file('7525_2110302352_2110310014.hd5', 'r') as f:
     scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max))
 
     scan.reset_index(inplace=True)
-    #print(scan)
 
-    #rate = pd.DataFrame()
+    rates = pd.DataFrame()
 
     # rate
-    for j, plane in enumerate(scan.nominal_sep_plane.unique()):
-        rate = np.empty([len(scan[scan.nominal_sep_plane == plane]), len(collidable)])
-        rate_err = np.empty([len(scan[scan.nominal_sep_plane == plane]), len(collidable)])
-        for i, sep in enumerate(scan.sep.unique()):
+    for p, plane in enumerate(scan.nominal_sep_plane.unique()):
+        for b, sep in enumerate(scan.sep.unique()):
             period_of_scanpoint = f"(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})"
+            
             r = np.array([r['bxraw'][collidable] for r in f.root['pltlumizero'].where(period_of_scanpoint)])
-            b = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)])
-            #b = np.array([b['intensity1']*b['intensity2']/1e22 for b in f.root['beam'].where(period_of_scanpoint)])
-            b_mean = b.mean(axis=0)
-            rate[i,:] = r.mean(axis=0) / b_mean
-            #rate[i,:] = r.mean(axis=0) # normal ratefile
-            rate_err[i,:] = stats.sem(r, axis=0) / b_mean
+            beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)])
+            new_rates = pd.DataFrame(np.array([r.mean(axis=0), beam.mean(axis=0)]).T, columns=['rate', 'beam'])
 
-        pd.DataFrame(rate, columns=collidable).to_csv('ratefile.csv', index=False)
+            new_rates.insert(0, 'bcid', collidable+1)
+            new_rates.insert(0, 'sep', sep)
+            new_rates.insert(0, 'plane', plane)
 
+            new_rates['rate_normalised'] = new_rates['rate'] / new_rates['beam']
+            new_rates['rate_normalised_err'] = stats.sem(r, axis=0) / new_rates['beam']
 
-        for i, bcid in enumerate(collidable):
+            rates = new_rates if p == 0 and b == 0 else pd.concat([rates, new_rates])
+
+    rates.to_csv('output/ratefile.csv', index=False)
+
+    rates['rate_normalised_err'].replace(0, rates['rate_normalised_err'].max(axis=0), inplace=True)
+
+    for p, plane in enumerate(rates.plane.unique()):
+        for b, bcid in enumerate(rates.bcid.unique()):
             plt.figure()
             plt.title(f"{plane}, BCID {bcid+1}")
             data_x = scan[scan.nominal_sep_plane == plane]["sep"]
-            data_y = rate[:, i]
-            data_yerr = rate_err[:, i]
+            data_y = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised
+            data_y_err = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised_err
 
-            data_yerr[data_yerr == 0] = np.mean(data_yerr)
-            print(data_yerr)
-
-            #rate_table = pd.DataFrame(np.array([data_x, rate[:,i], rate_err[:,i]]).T, columns=['sep', 'rate', 'err'])
-            #rate_table = rate_table[(rate_table != 0).all(1)]
-
-            #data_x = rate_table.sep
-            #data_y = rate_table.rate
-            #data_yerr = rate_table.err
-
-            least_squares = LeastSquares(data_x, data_y, data_yerr, gaussian)
+            least_squares = LeastSquares(data_x, data_y, data_y_err, gaussian)
 
             m = Minuit(least_squares, peak=1e-4, mean=0, cap_sigma=0.3)
 
@@ -83,21 +75,22 @@ with tables.open_file('7525_2110302352_2110310014.hd5', 'r') as f:
             new.insert(0, 'plane', plane)
             new.insert(0, 'bcid', bcid)
 
-            fit_results = new if i == 0 and j == 0 else pd.concat([fit_results, new], ignore_index=True)
+            fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
 
-            plt.errorbar(data_x, data_y, data_yerr, fmt="o")
-            plt.plot(data_x, gaussian(data_x, *m.values))
+            plt.errorbar(data_x, data_y, data_y_err, fmt="o")
+            x_dense = np.linspace(np.min(data_x), np.max(data_x))
+            plt.plot(x_dense, gaussian(x_dense, *m.values))
 
             fit_info = [f"$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(data_x) - m.nfit}"]
 
-            for p, v, e in zip(m.parameters, m.values, m.errors):
-                fit_info.append(f"{p} = ${v:.3e} \\pm {e:.3e}$")
+            for param, v, e in zip(m.parameters, m.values, m.errors):
+                fit_info.append(f"{param} = ${v:.3e} \\pm {e:.3e}$")
 
             plt.legend(title="\n".join(fit_info))
 
-            plt.yscale('log')
+            #plt.yscale('log')
 
-            plt.savefig(f'fit_{plane}_{bcid}.png')
+            plt.savefig(f'output/fit_{plane}_{bcid}.png')
 
     fit_results.cap_sigma *= 1e3
 
