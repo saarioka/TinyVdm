@@ -10,26 +10,33 @@ from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
 
-def gaussian(x, peak, mean, cap_sigma):
+def sg(x, peak, mean, cap_sigma):
     return peak*np.exp(-(x-mean)**2/(2*cap_sigma**2))
+
+def sg_const(x, peak, mean, cap_sigma, constant):
+    return sg(x, peak, mean, cap_sigma) + constant
+
+FIT_NAME_TO_FUNC = {
+    'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
+    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}}
+}
 
 def main(args):
     for filename in args.files:
         outpath = f'output/{Path(filename).stem}'
         Path(outpath).mkdir(parents=True, exist_ok=True)
         with tables.open_file(filename, 'r') as f:
-            collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding
+            collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches
 
+            # Associate timestamps to scan plane - scan point pairs
             scan = pd.DataFrame()
             scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max))
-
             scan.reset_index(inplace=True)
 
             rates = pd.DataFrame()
-
             for p, plane in enumerate(scan.nominal_sep_plane.unique()):
                 for b, sep in enumerate(scan.sep.unique()):
                     period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
@@ -47,7 +54,7 @@ def main(args):
 
                     rates = new_rates if p == 0 and b == 0 else pd.concat([rates, new_rates])
 
-        rates.to_csv(f'{outpath}/input_data.csv', index=False)
+        rates.to_csv(f'{outpath}/input_data.csv', index=False) # save rates and beam currects
 
         rates['rate_normalised_err'].replace(0, rates['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate
 
@@ -60,8 +67,8 @@ def main(args):
                     data_y = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised
                     data_y_err = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised_err
 
-                    least_squares = LeastSquares(data_x, data_y, data_y_err, gaussian)
-                    m = Minuit(least_squares, peak=1e-4, mean=0, cap_sigma=0.3)
+                    least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_NAME_TO_FUNC[args.fit]['handle'])
+                    m = Minuit(least_squares, **FIT_NAME_TO_FUNC[args.fit]['initial_values'])
                     m.migrad()  # finds minimum of least_squares function
                     m.hesse()   # accurately computes uncertainties
 
@@ -74,7 +81,7 @@ def main(args):
 
                     plt.errorbar(data_x, data_y, data_y_err, fmt='ko')
                     x_dense = np.linspace(np.min(data_x), np.max(data_x))
-                    plt.plot(x_dense, gaussian(x_dense, *m.values), 'k')
+                    plt.plot(x_dense, FIT_NAME_TO_FUNC[args.fit]['handle'](x_dense, *m.values), 'k')
 
                     fit_info = [f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(data_x) - m.nfit}']
                     for param, v, e in zip(m.parameters, m.values, m.errors):
@@ -102,6 +109,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-l', '--luminometer', type=str, help='luminometer name', required=True)
+    parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
+    parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_NAME_TO_FUNC.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
