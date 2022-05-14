@@ -107,8 +107,9 @@ def main(args):
                     for param, v, e in zip(m.parameters, m.values, m.errors):
                         fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
 
-                    plt.text(0.95, 0.95, '\n'.join(fit_info), transform=plt.gca().transAxes, fontsize=14, verticalalignment='top', horizontalalignment='right')
-                    plt.xlabel('$\Delta$ [mm]')
+                    fit_info = [info.replace('cap_sigma', '$\Sigma$') for info in fit_info]
+
+                    plt.text(0.95, 0.95, '\n'.join(fit_info), transform=plt.gca().transAxes, fontsize=14, fontweight='bold', verticalalignment='top', horizontalalignment='right')
                     frame1.set_ylabel('$R/(N_1 N_2)$ [arb.]')
                     frame1.set_xticklabels([])
 
@@ -117,6 +118,8 @@ def main(args):
                     frame2.set_ylabel('Residual [$\sigma$]',fontsize=20)
                     residuals = (data_y.to_numpy() - FIT_FUNCTIONS[args.fit]['handle'](data_x, *m.values).to_numpy()) / data_y_err.to_numpy()
                     plt.scatter(data_x, residuals, c='k')
+                    lim = list(plt.xlim()); plt.plot(lim, [0, 0], 'k:'); plt.xlim(lim) # plot without changing xlim
+                    plt.xlabel('$\Delta$ [mm]')
 
                     pdf.savefig(bbox_inches='tight')
 
