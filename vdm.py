@@ -19,10 +19,14 @@ def sg_const(x, peak, mean, cap_sigma, constant):
 def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
     return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
 
+def dg_const(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
+    return dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio) + constant
+
 FIT_FUNCTIONS = {
     'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
     'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}}
+    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
+    'dg_const': {'handle': dg_const, 'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
 }
 
 def main(args):
@@ -32,44 +36,47 @@ def main(args):
         with tables.open_file(filename, 'r') as f:
             collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches
 
-            # Associate timestamps to scan plane - scan point pairs
+            # Associate timestamps to scan plane - scan point -pairs
             scan = pd.DataFrame()
             scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max))
             scan.reset_index(inplace=True)
+            scan_file = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames)
+            scan_file['ip'] = scan_file['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # binary to dec to list all ips
+            scan_file[['fillnum', 'runnum', 'timestampsec', 'ip', 'bstar5', 'xingHmurad']].to_csv(f'{outpath}/scan.csv', index=False)
 
-            rates = pd.DataFrame()
+            rate_and_beam = pd.DataFrame()
             for p, plane in enumerate(scan.nominal_sep_plane.unique()):
                 for b, sep in enumerate(scan.sep.unique()):
                     period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
 
                     r = np.array([r['bxraw'][collidable] for r in f.root[args.luminometer].where(period_of_scanpoint)])
                     beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)])
-                    new_rates = pd.DataFrame(np.array([r.mean(axis=0), beam.mean(axis=0)]).T, columns=['rate', 'beam'])
+                    new_data = pd.DataFrame(np.array([r.mean(axis=0), beam.mean(axis=0)]).T, columns=['rate', 'beam'])
 
-                    new_rates.insert(0, 'bcid', collidable+1)
-                    new_rates.insert(0, 'sep', sep)
-                    new_rates.insert(0, 'plane', plane)
+                    new_data.insert(0, 'bcid', collidable+1)
+                    new_data.insert(0, 'sep', sep)
+                    new_data.insert(0, 'plane', plane)
 
-                    new_rates['rate_normalised'] = new_rates['rate'] / new_rates['beam']
-                    new_rates['rate_normalised_err'] = stats.sem(r, axis=0) / new_rates['beam']
+                    new_data['rate_normalised'] = new_data['rate'] / new_data['beam']
+                    new_data['rate_normalised_err'] = stats.sem(r, axis=0) / new_data['beam']
 
-                    rates = new_rates if p == 0 and b == 0 else pd.concat([rates, new_rates])
+                    rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
 
-        rates.to_csv(f'{outpath}/input_data.csv', index=False) # save rates and beam currects
+        rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
 
-        rates['rate_normalised_err'].replace(0, rates['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate
+        rate_and_beam['rate_normalised_err'].replace(0, rate_and_beam['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate
 
         with PdfPages(f'{outpath}/fit_{args.luminometer}.pdf') as pdf:
-            for p, plane in enumerate(rates.plane.unique()):
-                for b, bcid in enumerate(rates.bcid.unique()):
+            for p, plane in enumerate(rate_and_beam.plane.unique()):
+                for b, bcid in enumerate(rate_and_beam.bcid.unique()):
                     plt.figure()
                     plt.title(f'{plane}, BCID {bcid+1}')
                     data_x = scan[scan.nominal_sep_plane == plane]['sep']
-                    data_y = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised
-                    data_y_err = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised_err
+                    data_y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised']
+                    data_y_err = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised_err']
 
                     least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle'])
                     m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values'])
@@ -117,3 +124,4 @@ if __name__ == '__main__':
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
+
