@@ -16,9 +16,13 @@ def sg(x, peak, mean, cap_sigma):
 def sg_const(x, peak, mean, cap_sigma, constant):
     return sg(x, peak, mean, cap_sigma) + constant
 
-FIT_NAME_TO_FUNC = {
+def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
+    return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
+
+FIT_FUNCTIONS = {
     'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
-    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}}
+    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
+    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}}
 }
 
 def main(args):
@@ -67,8 +71,8 @@ def main(args):
                     data_y = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised
                     data_y_err = rates[(rates.plane == plane) & (rates.bcid == bcid)].rate_normalised_err
 
-                    least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_NAME_TO_FUNC[args.fit]['handle'])
-                    m = Minuit(least_squares, **FIT_NAME_TO_FUNC[args.fit]['initial_values'])
+                    least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle'])
+                    m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values'])
                     m.migrad()  # finds minimum of least_squares function
                     m.hesse()   # accurately computes uncertainties
 
@@ -81,7 +85,7 @@ def main(args):
 
                     plt.errorbar(data_x, data_y, data_y_err, fmt='ko')
                     x_dense = np.linspace(np.min(data_x), np.max(data_x))
-                    plt.plot(x_dense, FIT_NAME_TO_FUNC[args.fit]['handle'](x_dense, *m.values), 'k')
+                    plt.plot(x_dense, FIT_FUNCTIONS[args.fit]['handle'](x_dense, *m.values), 'k')
 
                     fit_info = [f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(data_x) - m.nfit}']
                     for param, v, e in zip(m.parameters, m.values, m.errors):
@@ -110,6 +114,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
-    parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_NAME_TO_FUNC.keys(), default='sg')
+    parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
