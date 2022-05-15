@@ -38,12 +38,19 @@ FIT_FUNCTIONS = {
     'dg_const': {'handle': dg_const, 'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
 }
 
+def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
+    fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['beam'].where(period_of_scanpoint)])
+    fbct_b2 = np.array([b['bxintensity2'][filled] for b in f.root['beam'].where(period_of_scanpoint)])
+    dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
+    return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
+
 def main(args):
     for filename in args.files:
         outpath = f'output/{Path(filename).stem}' # Save output to this folder
         Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
         with tables.open_file(filename, 'r') as f:
             collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
+            filled = np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig1'])  # indices of colliding bunches (0-indexed)
 
             # Associate timestamps to scan plane - scan point -pairs
             scan = pd.DataFrame()
@@ -64,20 +71,27 @@ def main(args):
 
                     r = np.array([r['bxraw'][collidable] for r in f.root[args.luminometer].where(period_of_scanpoint)]) # Rates of colliding bcids for this scan point
                     beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
-                    new_data = pd.DataFrame(np.array([r.mean(axis=0), beam.mean(axis=0)]).T, columns=['rate', 'beam']) # Mean over lumi sections
+
+                    new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam']) # Mean over lumi sections
+                    new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
 
                     new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
                     new_data.insert(0, 'sep', sep)
                     new_data.insert(0, 'plane', plane)
 
-                    new_data['rate_normalised'] = new_data['rate'] / new_data['beam'] # Calculate normalised rate and rate error
-                    new_data['rate_normalised_err'] = stats.sem(r, axis=0) / new_data['beam']
-
                     rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
 
-        rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
+                rate_and_beam.fbct_dcct_fraction_b1 = rate_and_beam.groupby('plane').fbct_dcct_fraction_b1.transform('mean')
+                rate_and_beam.fbct_dcct_fraction_b2 = rate_and_beam.groupby('plane').fbct_dcct_fraction_b2.transform('mean')
 
+        multiplier = rate_and_beam.fbct_dcct_fraction_b1 * rate_and_beam.fbct_dcct_fraction_b2
+
+        rate_and_beam['beam_calibrated'] = rate_and_beam.beam / multiplier
+        rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam_calibrated
+        rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam_calibrated
         rate_and_beam['rate_normalised_err'].replace(0, rate_and_beam['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate (max of error)
+
+        rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
 
         with PdfPages(f'{outpath}/fit_{args.luminometer}.pdf') as pdf:
             fig = plt.figure()
@@ -107,8 +121,8 @@ def main(args):
 
                     new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
                     new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
-                    new.insert(0, 'valid', m.valid)
-                    new.insert(0, 'accurate', m.accurate)
+                    new['valid'] =  m.valid
+                    new['accurate'] = m.accurate
                     new.insert(0, 'bcid', bcid)
                     new.insert(0, 'plane', plane)
 
