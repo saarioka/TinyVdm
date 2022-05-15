@@ -43,13 +43,21 @@ def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
     dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
     return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
 
+def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
+    abort_gap_mask = [*range(3444, 3564)]
+    filled_noncolliding = np.nonzero(np.logical_xor(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
+    rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer].where(period_of_scanpoint)])
+    rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer].where(period_of_scanpoint)])
+    bkg = 2*rate_nc.mean() - rate_ag.mean()
+    return bkg
+
 def main(args):
     for filename in args.files:
         outpath = f'output/{Path(filename).stem}' # Save output to this folder
         Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
         with tables.open_file(filename, 'r') as f:
             collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
-            filled = np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig1'])  # indices of colliding bunches (0-indexed)
+            filled = np.nonzero(np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
 
             # Associate timestamps to scan plane - scan point -pairs
             scan = pd.DataFrame()
@@ -79,6 +87,10 @@ def main(args):
                     new_data.insert(0, 'plane', plane)
 
                     rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
+
+                    bkg = bkg_from_noncolliding(f, period_of_scanpoint, args.luminometer)
+                    #if args.background_correction:
+
 
         rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam
         rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam
@@ -177,6 +189,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
+    parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
