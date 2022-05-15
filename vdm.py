@@ -81,14 +81,15 @@ def main(args):
 
                     rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
 
-                rate_and_beam.fbct_dcct_fraction_b1 = rate_and_beam.groupby('plane').fbct_dcct_fraction_b1.transform('mean')
-                rate_and_beam.fbct_dcct_fraction_b2 = rate_and_beam.groupby('plane').fbct_dcct_fraction_b2.transform('mean')
+        rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam
+        rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam
 
-        multiplier = rate_and_beam.fbct_dcct_fraction_b1 * rate_and_beam.fbct_dcct_fraction_b2
+        if not args.no_fbct_dcct:
+            calib = rate_and_beam.groupby('plane')[['fbct_dcct_fraction_b1', 'fbct_dcct_fraction_b2']].transform('mean').prod(axis=1) # Mean over LS, multiply B1 * B2
+            rate_and_beam['beam_calibrated'] = rate_and_beam.beam / calib
+            rate_and_beam['rate_normalised'] *= calib
+            rate_and_beam['rate_normalised_err'] *= calib
 
-        rate_and_beam['beam_calibrated'] = rate_and_beam.beam / multiplier
-        rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam_calibrated
-        rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam_calibrated
         rate_and_beam['rate_normalised_err'].replace(0, rate_and_beam['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate (max of error)
 
         rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
@@ -107,7 +108,7 @@ def main(args):
             ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
             ax2.set_xlabel('$\Delta$ [mm]')
             ax2.minorticks_off()
-            for p, plane in enumerate(rate_and_beam.plane.unique()): # For eah plane
+            for p, plane in enumerate(rate_and_beam.plane.unique()): # For each plane
                 for b, bcid in enumerate(rate_and_beam.bcid.unique()): # For each BCID
                     figure_items = []
                     data_x = scan[scan.nominal_sep_plane == plane]['sep'] # x-data: separations
@@ -173,6 +174,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
+    parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
