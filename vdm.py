@@ -86,12 +86,13 @@ def main(args):
             ax1.set_ylabel('$R/(N_1 N_2)$ [arb.]')
             ax1.set_xticklabels([])
             ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0), useMathText=True, useOffset=False)
+            ax1.minorticks_off()
 
             ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
-            ax2.ticklabel_format(axis='y', style='plain', useMathText=True, useOffset=False)
+            ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
             ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
             ax2.set_xlabel('$\Delta$ [mm]')
-
+            ax2.minorticks_off()
             for p, plane in enumerate(rate_and_beam.plane.unique()): # For eah plane
                 for b, bcid in enumerate(rate_and_beam.bcid.unique()): # For each BCID
                     figure_items = []
@@ -130,9 +131,9 @@ def main(args):
                     figure_items.append(ax2.scatter(data_x, residuals, c='k'))
                     lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
 
-                    start_time = time.time()
+                    #start_time = time.time()
                     pdf.savefig()
-                    print(time.time() - start_time)
+                    #print(time.time() - start_time)
 
                     for item in figure_items: # Only delete lines and fit results, leave general things
                         if isinstance(item, list):
