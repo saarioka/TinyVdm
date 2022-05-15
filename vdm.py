@@ -11,7 +11,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
-import time
 
 matplotlib.use('Agg')
 
@@ -94,7 +93,9 @@ def main(args):
 
         rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
 
-        with PdfPages(f'{outpath}/fit_{args.luminometer}.pdf') as pdf:
+        if args.pdf: # initialize template for plots
+            pdf = PdfPages(f'{outpath}/fit_{args.luminometer}.pdf')
+
             fig = plt.figure()
             ax1 = fig.add_axes((.12,.3,.83,.65)) # Upper part: fit and data points
             hep.cms.label(llabel="Preliminary", rlabel=fr"Fill {scan_info.fillnum[0]}, $\sqrt{{s}}={scan_info['energy'][0]*2/1000:.1f}$ TeV", loc=1)
@@ -108,27 +109,29 @@ def main(args):
             ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
             ax2.set_xlabel('$\Delta$ [mm]')
             ax2.minorticks_off()
-            for p, plane in enumerate(rate_and_beam.plane.unique()): # For each plane
-                for b, bcid in enumerate(rate_and_beam.bcid.unique()): # For each BCID
+
+        for p, plane in enumerate(rate_and_beam.plane.unique()): # For each plane
+            for b, bcid in enumerate(rate_and_beam.bcid.unique()): # For each BCID
+                data_x = scan[scan.nominal_sep_plane == plane]['sep'] # x-data: separations
+                data_y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised'] # y-data: normalised rates
+                data_y_err = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised_err']
+
+                least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle']) # Initialise minimiser with data and fit function of choice
+                m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
+                m.migrad()  # Finds minimum of least_squares function
+                m.hesse()   # Accurately computes uncertainties
+
+                new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
+                new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
+                new['valid'] =  m.valid
+                new['accurate'] = m.accurate
+                new.insert(0, 'bcid', bcid)
+                new.insert(0, 'plane', plane)
+
+                fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
+
+                if args.pdf:
                     figure_items = []
-                    data_x = scan[scan.nominal_sep_plane == plane]['sep'] # x-data: separations
-                    data_y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised'] # y-data: normalised rates
-                    data_y_err = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)]['rate_normalised_err']
-
-                    least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle']) # Initialise minimiser with data and fit function of choice
-                    m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
-                    m.migrad()  # Finds minimum of least_squares function
-                    m.hesse()   # Accurately computes uncertainties
-
-                    new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
-                    new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
-                    new['valid'] =  m.valid
-                    new['accurate'] = m.accurate
-                    new.insert(0, 'bcid', bcid)
-                    new.insert(0, 'plane', plane)
-
-                    fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
-
                     figure_items.append(ax1.errorbar(data_x, data_y, data_y_err, fmt='ko')) # Plot the data points
                     x_dense = np.linspace(np.min(data_x), np.max(data_x))
                     figure_items.append(ax1.plot(x_dense, FIT_FUNCTIONS[args.fit]['handle'](x_dense, *m.values), 'k')) # Plot the fit result
@@ -146,16 +149,15 @@ def main(args):
                     figure_items.append(ax2.scatter(data_x, residuals, c='k'))
                     lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
 
-                    #start_time = time.time()
                     pdf.savefig()
-                    #print(time.time() - start_time)
 
                     for item in figure_items: # Only delete lines and fit results, leave general things
                         if isinstance(item, list):
                             item[0].remove()
                         else:
                             item.remove()
-
+        if args.pdf:
+            pdf.close()
 
         fit_results.cap_sigma *= 1e3 # to µm
         fit_results.to_csv(f'{outpath}/{args.luminometer}_fit_results.csv', index=False)
@@ -175,6 +177,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
+    parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
