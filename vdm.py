@@ -1,12 +1,13 @@
 from pathlib import Path
 import argparse
 
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import tables
+import matplotlib
 import matplotlib.pyplot as plt
 import mplhep as hep
-import matplotlib
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 from iminuit import Minuit
@@ -29,12 +30,12 @@ def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
 def dg_const(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
     return dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio) + constant
 
-# Each function needs a mapping from string given as a parameter, and also a set of initial conditions
+# Each function needs a mapping from string given as a parameter, and also a set of initial conditions. Initial value for peak can be estimated well as normalised head-on rate
 FIT_FUNCTIONS = {
-    'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
-    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
-    'dg_const': {'handle': dg_const, 'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
+    'sg':       {'handle': sg,       'initial_values': {'mean': 0, 'cap_sigma': 0.25}},
+    'sg_const': {'handle': sg_const, 'initial_values': {'mean': 0, 'cap_sigma': 0.25, 'constant': 0}},
+    'dg':       {'handle': dg,       'initial_values': {'mean': 0, 'cap_sigma': 0.25, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
+    'dg_const': {'handle': dg_const, 'initial_values': {'mean': 0, 'cap_sigma': 0.25, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
 }
 
 def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
@@ -69,8 +70,8 @@ def main(args):
             scan.groupby(['nominal_sep_plane', 'sep'])
 
             data = pd.DataFrame()
-            for p, plane in enumerate(scan.nominal_sep_plane.unique()):
-                for b, sep in enumerate(scan.sep.unique()):
+            for p, plane in tqdm(enumerate(scan.nominal_sep_plane.unique())):
+                for b, sep in tqdm(enumerate(scan.sep.unique()), leave=False):
                     new = pd.DataFrame()
                     new['bcid'] = range(1,3565)
 
@@ -110,7 +111,7 @@ def main(args):
 
         data.reset_index(drop=True, inplace=True)
 
-        beam = data['fbct1'] * data['fbct2'] / 1e22
+        beam = data['fbct1'] * data['fbct2'] / 1e22 # 1e30 for cm^-2
         data['rate_normalised'] = data.rate / beam
         data['rate_normalised_err'] = data.rate_err / beam
 
@@ -125,7 +126,7 @@ def main(args):
         # Add sensible error in case of 0 rate: max of error, most often error associated to point with 1 hit (if there is a point with 0 rate, then there is probably one with 1)
         data['rate_normalised_err'].replace(0, data['rate_normalised_err'].max(), inplace=True)
 
-        data.to_csv(f'{outpath}/data.csv', index=False)
+        data.to_csv(f'{outpath}/{args.luminometer}_data.csv', index=False)
 
         if args.pdf: # initialize template for plots
             pdf = PdfPages(f'{outpath}/fit_{args.luminometer}.pdf')
@@ -140,8 +141,8 @@ def main(args):
 
             ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
             ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
-            ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
-            ax2.set_xlabel('$\Delta$ [mm]')
+            ax2.set_ylabel(r'Residual [$\sigma$]',fontsize=20)
+            ax2.set_xlabel(r'$\Delta$ [mm]')
             ax2.minorticks_off()
 
         for p, plane in enumerate(data.plane.unique()): # For each plane
@@ -150,9 +151,12 @@ def main(args):
                 data_y = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised'] # y-data: normalised rates
                 data_y_err = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised_err']
 
+                FIT_FUNCTIONS[args.fit]['initial_values']['peak'] = np.max(data_y)
+
                 least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle']) # Initialise minimiser with data and fit function of choice
                 m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
-                m.migrad()  # Finds minimum of least_squares function
+                m.limits['cap_sigma'] = [0, None] # Most preferably positive beam widths
+                m.migrad(iterate=1)  # Finds minimum of least_squares function, iterate=1 disables max calls
                 m.hesse()   # Accurately computes uncertainties
 
                 new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
@@ -174,14 +178,18 @@ def main(args):
                     for param, v, e in zip(m.parameters, m.values, m.errors):
                         fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
 
-                    fit_info = [info.replace('cap_sigma', '$\Sigma$') for info in fit_info]
+                    fit_info = [info.replace('cap_sigma', r'$\Sigma$') for info in fit_info]
 
                     figure_items.append(ax1.text(0.95, 0.95, '\n'.join(fit_info), transform=ax1.transAxes, fontsize=14, fontweight='bold',
                         verticalalignment='top', horizontalalignment='right'))
 
                     residuals = (data_y.to_numpy() - FIT_FUNCTIONS[args.fit]['handle'](data_x, *m.values).to_numpy()) / data_y_err.to_numpy()
                     figure_items.append(ax2.scatter(data_x, residuals, c='k'))
-                    lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
+
+                    # plot without changing xlim
+                    lim = list(plt.xlim())
+                    figure_items.append(ax2.plot(lim, [0, 0], 'k:'))
+                    plt.xlim(lim)
 
                     pdf.savefig()
 
@@ -205,7 +213,7 @@ def main(args):
 
         lumi = pd.concat([sigvis, sigvis_err], axis=1)
         lumi.columns = ['sigvis', 'sigvis_err']
-        lumi.to_csv(f'{outpath}/lumi.csv')
+        lumi.to_csv(f'{outpath}/{args.luminometer}_lumi.csv')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -216,4 +224,3 @@ if __name__ == '__main__':
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
-
