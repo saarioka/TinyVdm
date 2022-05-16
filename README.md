@@ -16,11 +16,15 @@ Run analysis for the preferred example file using
 python3 vdm.py -l pltlumizero /eos/cms/store/group/dpg_bril/comm_bril/vdmdata/2021/original/7525/7525_2110302352_2110310014.hd5
 ```
 
-I suggest looking at the code while comparing the printouts to the code statements to get an idea what is being calculated. Next, Look into folder `output` and compare it to the contents of `framework_results_without_beam_current_calibration`.
+I suggest looking at the code while comparing the printouts to the code statements to get an idea what is being calculated.
+
+Next, Look into folder `output` and compare it to the contents of `framework_results_without_beam_current_calibration`.
 
 Also try flags `-pdf`, `-cbc`, `-fit` and other values for `-l`. See help with python3 
 
 ## List of features
-- Fit pdfs
 - Choice of luminometer
-- Multiple files as input (just give a list of files as unnamed parameter)
+- Choice of fit
+- Beam current calibration
+- Fit pdfs
+- Multiple files as input. Give a list of files as unnamed parameter or pipe the output of `ls` with ` ls *.hd5 | xargs python3 vdm.py -l <lumi> `
