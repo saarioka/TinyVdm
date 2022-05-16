@@ -20,7 +20,7 @@ I suggest looking at the code while comparing the printouts to the code statemen
 
 Next, Look into folder `output` and compare it to the contents of `framework_results_without_beam_current_calibration`.
 
-Also try flags `-pdf`, `-cbc`, `-fit` and other values for `-l`. See help with python3 
+Also try flags `-pdf`, `-cbc`, `-fit` and other values for `-l`. See help with `python3 vdm.py --help` 
 
 ## List of features
 - Choice of luminometer
