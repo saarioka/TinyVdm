@@ -2,7 +2,7 @@
 
 Lightweight vdM analysis meant to illustrate the process of the vdM framework.
 
-Will run with a general installation of Python3 found in LXPLUS etc, but needs some  additional (common packages. Depending on your environment, the correct executable might be called either `python` or `python3` (see version with `python --version`).
+Will run with a general installation of Python3 found in LXPLUS etc, but needs some  additional (common) packages. Depending on your environment, the correct executable might be called either `python` or `python3` (see version with `python --version`).
 
 Install the needed packages with
 
