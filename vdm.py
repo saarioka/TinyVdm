@@ -4,16 +4,16 @@ import argparse
 import pandas as pd
 import numpy as np
 import tables
+import matplotlib
 import matplotlib.pyplot as plt
 import mplhep as hep
-import matplotlib
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
 
+# Plot styles
 matplotlib.use('Agg')
-
 plt.style.use(hep.style.CMS)
 
 # Define functions that may be fit to the rates
@@ -23,27 +23,11 @@ def sg(x, peak, mean, cap_sigma):
 def sg_const(x, peak, mean, cap_sigma, constant):
     return sg(x, peak, mean, cap_sigma) + constant
 
-def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
-    return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
-
-def dg_const(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
-    return dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio) + constant
-
 # Each function needs a mapping from string given as a parameter, and also a set of initial conditions
 FIT_FUNCTIONS = {
     'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
-    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
-    'dg_const': {'handle': dg_const, 'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
+    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}}
 }
-
-def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
-    abort_gap_mask = [*range(3444, 3564)]
-    filled_noncolliding = np.nonzero(np.logical_xor(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
-    rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer].where(period_of_scanpoint)])
-    rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer].where(period_of_scanpoint)])
-    bkg = 2*rate_nc.mean() - rate_ag.mean()
-    return bkg
 
 def main(args):
     for filename in args.files:
@@ -51,84 +35,80 @@ def main(args):
         Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
         with tables.open_file(filename, 'r') as f:
             general_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames) # Get first row of table "vdmscan" to save scan conditions that are constant through the scan
-            general_info['ip'] = general_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
+            general_info['ip'] = general_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs (scan in IP n iff bit n == 1)
             general_info['energy'] = f.root.beam[0]['egev']
-            general_info[['fillnum', 'runnum', 'timestampsec', 'energy', 'ip', 'bstar5', 'xingHmurad']].to_csv(f'{outpath}/scan.csv', index=False) # Save this set of conditions to file
-
-            collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
-            filled = np.nonzero(np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
+            general_info = general_info[['fillnum', 'runnum', 'timestampsec', 'energy', 'ip', 'bstar5', 'xingHmurad']]
+            general_info.to_csv(f'{outpath}/scan.csv', index=False) # Save this set of conditions to file
+            print('General scan info\n', general_info.to_string(index=False))
 
             # Associate timestamps to scan plane - scan point -pairs
             scan = pd.DataFrame()
-
             scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
             scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where('stat == "ACQUIRING"')] # Decode is needed for values of type string
             scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max)) # Get min and max for each plane - sep pair
-            scan.reset_index(inplace=True)
-            scan.groupby(['nominal_sep_plane', 'sep'])
+            scan.reset_index(inplace=True) # Return values used to group to normal columns
+            print('\nScanpoints and timestamps\n', scan.head())
 
+            collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # Indices of colliding bunches (0-indexed), np.nonzero returns 2 arrays where the first contains indices
+            filled = np.nonzero(np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
+
+            # Go through each scan point and get rate and beam currect values for each colliding bunch
             data = pd.DataFrame()
             for p, plane in enumerate(scan.nominal_sep_plane.unique()):
-                for b, sep in enumerate(scan.sep.unique()):
+                for sep in scan.sep.unique():
                     new = pd.DataFrame()
-                    new['bcid'] = range(1,3565)
+                    new['bcid'] = collidable + 1 # From 0-indexed to 1-indexed
 
                     period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
 
-                    r = np.array([r['bxraw'] for r in f.root[args.luminometer].where(period_of_scanpoint)])
-                    new['rate'] = r.mean(axis=0)
+                    r = np.array([r['bxraw'][collidable] for r in f.root[args.luminometer].where(period_of_scanpoint)]) # Only get rate for colliding bunches
+                    new['rate'] = r.mean(axis=0) # Mean over LS
                     new['rate_err'] = stats.sem(r, axis=0)
 
-                    fbct1 = np.array([b['bxintensity1'] for b in f.root['beam'].where(period_of_scanpoint)])
-                    fbct2 = np.array([b['bxintensity2'] for b in f.root['beam'].where(period_of_scanpoint)])
-                    new['fbct1'] = fbct1.mean(axis=0)
-                    new['fbct2'] = fbct2.mean(axis=0)
-                    new['fbct1_err'] = stats.sem(fbct1, axis=0)
-                    new['fbct2_err'] = stats.sem(fbct2, axis=0)
-
-                    dcct1 = np.array([b['intensity1'] for b in f.root['beam'].where(period_of_scanpoint)])
-                    dcct2 = np.array([b['intensity2'] for b in f.root['beam'].where(period_of_scanpoint)])
-                    new['dcct1'] = dcct1.mean(axis=0)
-                    new['dcct2'] = dcct2.mean(axis=0)
-                    new['dcct1_err'] = stats.sem(fbct1, axis=0)
-                    new['dcct2_err'] = stats.sem(fbct2, axis=0)
-
-                    new['filled'] = np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
-                    new['colliding'] = np.logical_and(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
-                    new['filled_noncolliding'] = np.logical_xor(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
+                    new['fbct1'] = np.array([b['bxintensity1'][collidable] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0)
+                    new['fbct2'] = np.array([b['bxintensity2'][collidable] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0)
 
                     # DCCT is not per bunch, instead same value that contains te sum over BCIDs is repeated for all BCIDs
-                    new['fbct_to_dcct1'], new['fbct_to_dcct2'] = new.query('colliding')[['fbct1', 'fbct2']].sum(axis=0).to_numpy() / new.query('bcid == 1')[['dcct1', 'dcct2']].sum(axis=0).to_numpy()
+                    new['dcct1'] = np.array([b['intensity1'] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0)
+                    new['dcct2'] = np.array([b['intensity2'] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0)
+                    
+                    # Additional quantities are needed for beam current calibration
+                    if args.calibrate_beam_current:
+                        fbct_filled1 = np.array([b['bxintensity1'][filled] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0).sum()
+                        fbct_filled2 = np.array([b['bxintensity2'][filled] for b in f.root['beam'].where(period_of_scanpoint)]).mean(axis=0).sum()
+                        new['fbct_to_dcct_beam1'] = fbct_filled1 / new['dcct1']
+                        new['fbct_to_dcct_beam2'] = fbct_filled2 / new['dcct2']
 
-                    new.insert(0, 'sep', sep)
+                    new.insert(0, 'sep', sep) # Inserting constant as a column value will fill the column with the value
                     new.insert(0, 'plane', plane)
 
                     data = pd.concat([data, new])
 
-                    #bkg = bkg_from_noncolliding(f, period_of_scanpoint, args.luminometer)
-
         data.reset_index(drop=True, inplace=True)
 
+        # Normalise rate by the product of beam currents
         beam = data['fbct1'] * data['fbct2'] / 1e22
         data['rate_normalised'] = data.rate / beam
         data['rate_normalised_err'] = data.rate_err / beam
 
         if args.calibrate_beam_current:
-            calib = data.groupby('plane')[['fbct_to_dcct1', 'fbct_to_dcct2']].mean().prod(axis=1) # mean over LS, prod over beams
-            for p in calib.index.unique():
+            calib = data.groupby('plane')[['fbct_to_dcct_beam1', 'fbct_to_dcct_beam2']].mean()
+            print('\nFBCT to DCCT calibration coefficients\n', calib)
+            calib = calib.prod(axis=1) # Mean over LS, prod over beams
+            print(calib)
+            for p in calib.index:
                 data.loc[data.plane == p, 'rate_normalised'] *= calib[calib.index == p].item()
                 data.loc[data.plane == p, 'rate_normalised_err'] *= calib[calib.index == p].item()
 
-        data.replace([-np.inf, np.inf, np.nan], 0, inplace=True)
-
-        # Add sensible error in case of 0 rate: max of error, most often error associated to point with 1 hit (if there is a point with 0 rate, then there is probably one with 1)
+        # Add sensible error in case of 0 rate: max of error
         data['rate_normalised_err'].replace(0, data['rate_normalised_err'].max(), inplace=True)
 
-        data.to_csv(f'{outpath}/data.csv', index=False)
+        print('\ndata:\n', data.head())
+        data.to_csv(f'{outpath}/{args.luminometer}_data.csv', index=False)
 
-        if args.pdf: # initialize template for plots
-            pdf = PdfPages(f'{outpath}/fit_{args.luminometer}.pdf')
+        if args.pdf: # Initialize template for plots
+            pdf = PdfPages(f'{outpath}/{args.luminometer}_fit.pdf')
 
             fig = plt.figure()
             ax1 = fig.add_axes((.12,.3,.83,.65)) # Upper part: fit and data points
@@ -140,14 +120,16 @@ def main(args):
 
             ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
             ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
-            ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
-            ax2.set_xlabel('$\Delta$ [mm]')
+            ax2.set_ylabel(r'Residual [$\sigma$]',fontsize=20)
+            ax2.set_xlabel(r'$\Delta$ [mm]')
             ax2.minorticks_off()
 
+        # Make a fit for each BCID in both planes
+        fit_results = pd.DataFrame()
         for p, plane in enumerate(data.plane.unique()): # For each plane
-            for b, bcid in enumerate(collidable+1): # For each BCID
-                data_x = scan[scan.nominal_sep_plane == plane]['sep'] # x-data: separations
-                data_y = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised'] # y-data: normalised rates
+            for bcid in collidable+1: # For each BCID
+                data_x = scan[scan.nominal_sep_plane == plane]['sep']
+                data_y = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised']
                 data_y_err = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised_err']
 
                 least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle']) # Initialise minimiser with data and fit function of choice
@@ -155,16 +137,18 @@ def main(args):
                 m.migrad()  # Finds minimum of least_squares function
                 m.hesse()   # Accurately computes uncertainties
 
-                new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
+                new = pd.DataFrame([m.values], columns=m.parameters) # Store values to dataframe
                 new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
-                new['valid'] =  m.valid
+
+                new['valid'] =  m.valid # Fit status
                 new['accurate'] = m.accurate
+
                 new.insert(0, 'bcid', bcid)
                 new.insert(0, 'plane', plane)
 
-                fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
+                fit_results = pd.concat([fit_results, new], ignore_index=True)
 
-                if args.pdf:
+                if args.pdf: # This is just for plotting
                     figure_items = []
                     figure_items.append(ax1.errorbar(data_x, data_y, data_y_err, fmt='ko', capsize=5)) # Plot the data points
                     x_dense = np.linspace(np.min(data_x), np.max(data_x))
@@ -174,14 +158,16 @@ def main(args):
                     for param, v, e in zip(m.parameters, m.values, m.errors):
                         fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
 
-                    fit_info = [info.replace('cap_sigma', '$\Sigma$') for info in fit_info]
+                    fit_info = [info.replace('cap_sigma', r'$\Sigma$') for info in fit_info]
 
                     figure_items.append(ax1.text(0.95, 0.95, '\n'.join(fit_info), transform=ax1.transAxes, fontsize=14, fontweight='bold',
                         verticalalignment='top', horizontalalignment='right'))
 
                     residuals = (data_y.to_numpy() - FIT_FUNCTIONS[args.fit]['handle'](data_x, *m.values).to_numpy()) / data_y_err.to_numpy()
                     figure_items.append(ax2.scatter(data_x, residuals, c='k'))
-                    lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
+                    lim = list(plt.xlim()) # Plot wide line without changing xlim
+                    figure_items.append(ax2.plot(lim, [0, 0], 'k:'))
+                    plt.xlim(lim)
 
                     pdf.savefig()
 
@@ -194,26 +180,30 @@ def main(args):
             pdf.close()
 
         fit_results.cap_sigma *= 1e3 # to µm
+
+        print('\nfit_results:')
+        print(fit_results.head())
         fit_results.to_csv(f'{outpath}/{args.luminometer}_fit_results.csv', index=False)
 
         val = fit_results.pivot(index='bcid', columns=['plane'], values=['cap_sigma', 'peak', 'cap_sigma_err', 'peak_err'])
 
-        sigvis = np.pi * val.cap_sigma.prod(axis=1) * val.peak.sum(axis=1)
+        sigvis = np.pi * val.cap_sigma.prod(axis=1) * val.peak.sum(axis=1) # sigvis = 2*pi*Sigma_x*Sigma_y*(peak_1+peak_2)/2
 
-        sigvis_err = (val.cap_sigma_err**2 / val.cap_sigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
+        sigvis_err = (val.cap_sigma_err**2 / val.cap_sigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2 # Propagation of uncertainty
         sigvis_err = np.sqrt(sigvis_err) * sigvis
 
         lumi = pd.concat([sigvis, sigvis_err], axis=1)
         lumi.columns = ['sigvis', 'sigvis_err']
-        lumi.to_csv(f'{outpath}/lumi.csv')
+
+        print('\nlumi:')
+        print(lumi.head())
+        lumi.to_csv(f'{outpath}/{args.luminometer}_lumi.csv')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometer', type=str, help='Luminometer name', required=True)
     parser.add_argument('-cbc', '--calibrate_beam_current', help='Calibrate beam current', action='store_true')
-    parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
+    parser.add_argument('-fit', '--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
-
