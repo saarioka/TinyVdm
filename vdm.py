@@ -1,6 +1,7 @@
 from pathlib import Path
 import argparse
 
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import tables
@@ -126,8 +127,8 @@ def main(args):
 
         # Make a fit for each BCID in both planes
         fit_results = pd.DataFrame()
-        for p, plane in enumerate(data.plane.unique()): # For each plane
-            for bcid in collidable+1: # For each BCID
+        for p, plane in tqdm(enumerate(data.plane.unique())): # For each plane
+            for bcid in tqdm(collidable+1, leave=False): # For each BCID
                 data_x = scan[scan.nominal_sep_plane == plane]['sep']
                 data_y = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised']
                 data_y_err = data[(data.plane == plane) & (data.bcid == bcid)]['rate_normalised_err']
