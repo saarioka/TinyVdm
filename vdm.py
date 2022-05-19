@@ -92,15 +92,15 @@ def main(args):
                     dcct2 = np.array([b['intensity2'] for b in f.root['beam'].where(period_of_scanpoint)])
                     new['dcct1'] = dcct1.mean(axis=0)
                     new['dcct2'] = dcct2.mean(axis=0)
-                    new['dcct1_err'] = stats.sem(fbct1, axis=0)
-                    new['dcct2_err'] = stats.sem(fbct2, axis=0)
+                    new['dcct1_err'] = stats.sem(dcct1, axis=0)
+                    new['dcct2_err'] = stats.sem(dcct2, axis=0)
 
                     new['filled'] = np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
                     new['colliding'] = np.logical_and(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
                     new['filled_noncolliding'] = np.logical_xor(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2'])
 
                     # DCCT is not per bunch, instead same value that contains te sum over BCIDs is repeated for all BCIDs
-                    new['fbct_to_dcct1'], new['fbct_to_dcct2'] = new.query('colliding')[['fbct1', 'fbct2']].sum(axis=0).to_numpy() / new.query('bcid == 1')[['dcct1', 'dcct2']].sum(axis=0).to_numpy()
+                    new['fbct_to_dcct1'], new['fbct_to_dcct2'] = new.query('filled')[['fbct1', 'fbct2']].sum(axis=0).to_numpy() / new.query('bcid == 1')[['dcct1', 'dcct2']].sum(axis=0).to_numpy()
 
                     new.insert(0, 'sep', sep)
                     new.insert(0, 'plane', plane)
@@ -111,7 +111,9 @@ def main(args):
 
         data.reset_index(drop=True, inplace=True)
 
-        beam = data['fbct1'] * data['fbct2'] / 1e22 # 1e30 for cm^-2
+        beam = data['fbct1'][filled] * data['fbct2'][filled] / 1e22
+        print(data['fbct1'][filled].sum())
+        print(data['fbct2'][filled].sum())
         data['rate_normalised'] = data.rate / beam
         data['rate_normalised_err'] = data.rate_err / beam
 
