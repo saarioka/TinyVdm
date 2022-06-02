@@ -130,6 +130,7 @@ def main(args):
 
                 least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[args.fit]['handle']) # Initialise minimiser with data and fit function of choice
                 m = Minuit(least_squares, **FIT_FUNCTIONS[args.fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
+                m.limits['cap_sigma'] = [0, None] # Most preferably positive beam widths
                 m.migrad()  # Finds minimum of least_squares function
                 m.hesse()   # Accurately computes uncertainties
 
