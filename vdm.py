@@ -44,6 +44,7 @@ def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
     return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
 
 def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
+    """Not working"""
     abort_gap_mask = [*range(3444, 3564)]
     filled_noncolliding = np.nonzero(np.logical_xor(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
     rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer].where(period_of_scanpoint)])
@@ -87,9 +88,6 @@ def main(args):
                     new_data.insert(0, 'plane', plane)
 
                     rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
-
-                    bkg = bkg_from_noncolliding(f, period_of_scanpoint, args.luminometer)
-                    #if args.background_correction:
 
 
         rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam
@@ -173,6 +171,7 @@ def main(args):
             pdf.close()
 
         fit_results.cap_sigma *= 1e3 # to µm
+        fit_results.cap_sigma_err *= 1e3 # to µm
         fit_results.to_csv(f'{outpath}/{args.luminometer}_fit_results.csv', index=False)
 
         val = fit_results.pivot(index='bcid', columns=['plane'], values=['cap_sigma', 'peak', 'cap_sigma_err', 'peak_err'])
@@ -192,7 +191,7 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
+    parser.add_argument('-fit', '--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
     main(parser.parse_args())
 
