@@ -9,6 +9,7 @@ import mplhep as hep
 import matplotlib
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
+from scipy.special import gamma
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
 
@@ -23,6 +24,16 @@ def sg(x, peak, mean, cap_sigma):
 def sg_const(x, peak, mean, cap_sigma, constant):
     return sg(x, peak, mean, cap_sigma) + constant
 
+def super_gauss(x, peak, mean, cap_sigma, p):
+    beta = p*2.0
+    alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*cap_sigma
+    return peak*np.exp(-(np.abs(x-mean)/alpha)**beta)
+
+def poly_gauss(x, peak, mean, cap_sigma, r2, r4):
+    x0 = x - peak
+    sigma = cap_sigma / (1 + r2 + 3*r4)
+    return peak * (1 + r2*(x0/sigma)**2 + r4*(x0/sigma)**4 ) * np.exp(-(x0/sigma)**2/2)
+
 def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
     return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
 
@@ -31,10 +42,12 @@ def dg_const(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
 
 # Each function needs a mapping from string given as a parameter, and also a set of initial conditions
 FIT_FUNCTIONS = {
-    'sg':       {'handle': sg,       'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
-    'sg_const': {'handle': sg_const, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':       {'handle': dg,       'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
-    'dg_const': {'handle': dg_const, 'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
+    'sg':          {'handle': sg,          'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
+    'sg_const':    {'handle': sg_const,    'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
+    'super_gauss': {'handle': super_gauss, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
+    'poly_gauss':  {'handle': poly_gauss,  'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'r2': 1, 'r4': 1}},
+    'dg':          {'handle': dg,          'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
+    'dg_const':    {'handle': dg_const,    'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
 }
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
@@ -194,5 +207,6 @@ if __name__ == '__main__':
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
+
     main(parser.parse_args())
 
