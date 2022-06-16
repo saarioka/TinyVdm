@@ -45,7 +45,7 @@ FIT_FUNCTIONS = {
     'sg':          {'handle': sg,          'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
     'sg_const':    {'handle': sg_const,    'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
     'super_gauss': {'handle': super_gauss, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
-    'poly_gauss':  {'handle': poly_gauss,  'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'r2': 1, 'r4': 1}},
+    'poly_gauss':  {'handle': poly_gauss,  'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0.1, 'r4': 0.1}},
     'dg':          {'handle': dg,          'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
     'dg_const':    {'handle': dg_const,    'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
 }
