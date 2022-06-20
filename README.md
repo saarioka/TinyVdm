@@ -29,7 +29,7 @@ python3 -m pip install -U -r requirements.txt
 
 After installing the dependencies, start the notebook with `jupyter notebook`
 
-For SWAN users: In the beginning, start the command line and install the dependencies. After doing this, run
+For SWAN users: In the beginning, start the command line and install the dependencies with `pip install --user iminuit mplhep --upgrade`. After doing this, run
 
 ```bash
 export PYTHONPATH=$CERNBOX_HOME/.local/lib/python3.9/site-packages:$PYTHONPATH
