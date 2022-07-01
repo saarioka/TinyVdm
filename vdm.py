@@ -1,12 +1,12 @@
 from pathlib import Path
 import argparse
 
+import tables
+import matplotlib
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import tables
-import matplotlib.pyplot as plt
 import mplhep as hep
-import matplotlib
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 from scipy.special import gamma
@@ -21,33 +21,69 @@ plt.style.use(hep.style.CMS)
 def sg(x, peak, mean, cap_sigma):
     return peak*np.exp(-(x-mean)**2/(2*cap_sigma**2))
 
-def sg_const(x, peak, mean, cap_sigma, constant):
+
+def sgconst(x, peak, mean, cap_sigma, constant):
     return sg(x, peak, mean, cap_sigma) + constant
 
-def super_gauss(x, peak, mean, cap_sigma, p):
-    beta = p*2.0
-    alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*cap_sigma
-    return peak*np.exp(-(np.abs(x-mean)/alpha)**beta)
-
-def poly_gauss(x, peak, mean, cap_sigma, r2, r4):
-    x0 = x - peak
-    sigma = cap_sigma / (1 + r2 + 3*r4)
-    return peak * (1 + r2*(x0/sigma)**2 + r4*(x0/sigma)**4 ) * np.exp(-(x0/sigma)**2/2)
 
 def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
     return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
 
-def dg_const(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
+
+def dgconst(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
     return dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio) + constant
+
+
+def polyg6(x, peak, mean, cap_sigma, r2, r4, r6):
+    x0 = x-mean
+    sigma = cap_sigma / (1 + r2 + 3*r4 + 15*r6)
+    return peak*(1 + r2*(x0/sigma)**2 + r4*(x0/sigma)**4 + r6*(x0/sigma)**6)*np.exp(-(x0/sigma)**2/2)
+
+
+def polyg6const(x, peak, mean, cap_sigma, r2, r4, r6, const):
+    return polyg6(x, peak, mean, cap_sigma, r2, r4, r6) + const
+
+
+def polyg4(x, peak, mean, cap_sigma, r2, r4):
+    return polyg6(x, peak, mean, cap_sigma, r2, r4, 0)
+
+
+def polyg4const(x, peak, mean, cap_sigma, r2, r4, const):
+    return polyg6const(x, peak, mean, cap_sigma, r2, r4, 0, const)
+
+
+def polyg2(x, peak, mean, cap_sigma, r2):
+    return polyg4(x, peak, mean, cap_sigma, r2, 0)
+
+
+def polyg2const(x, peak, mean, cap_sigma, r2, const):
+    return polyg4const(x, peak, mean, cap_sigma, r2, 0, const)
+
+
+def superg(x, peak, mean, cap_sigma, p):
+    beta = p*2.0
+    alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*cap_sigma
+    return peak*np.exp(-(np.abs(x-mean)/alpha)**beta)
+
+
+def supergconst(x, peak, mean, cap_sigma, p, const):
+    return superg(x, peak, mean, cap_sigma, p) + const
+
 
 # Each function needs a mapping from string given as a parameter, and also a set of initial conditions
 FIT_FUNCTIONS = {
-    'sg':          {'handle': sg,          'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3}},
-    'sg_const':    {'handle': sg_const,    'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'super_gauss': {'handle': super_gauss, 'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
-    'poly_gauss':  {'handle': poly_gauss,  'initial_values': {'peak': 1e-4, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0.1, 'r4': 0.1}},
-    'dg':          {'handle': dg,          'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
-    'dg_const':    {'handle': dg_const,    'initial_values': {'peak': 2e-4, 'mean': 0, 'cap_sigma': 0.4, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'constant': 0}}
+    'sg':           {'handle': sg,          'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3}},
+    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
+    'dg':           {'handle': dg,          'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
+    'dgConst':      {'handle': dgconst,     'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'const': 0}},
+    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0}},
+    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
+    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0}},
+    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'const': 0}},
+    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0}},
+    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'const': 0}},
+    'superG':       {'handle': superg,      'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
+    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'p': 1, 'const': 0}},
 }
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
@@ -204,7 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('-fit', '--fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
+    parser.add_argument('-fit', type=str, help='Fit function', choices=FIT_FUNCTIONS.keys(), default='sg')
     parser.add_argument('files', nargs='*')
 
     main(parser.parse_args())
