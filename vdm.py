@@ -86,11 +86,13 @@ FIT_FUNCTIONS = {
     'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 1, 'mean': 0, 'cap_sigma': 0.3, 'p': 1, 'const': 0}},
 }
 
+
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
     fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['beam'].where(period_of_scanpoint)])
     fbct_b2 = np.array([b['bxintensity2'][filled] for b in f.root['beam'].where(period_of_scanpoint)])
     dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
     return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
+
 
 def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
     """Not working"""
@@ -101,73 +103,104 @@ def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
     bkg = 2*rate_nc.mean() - rate_ag.mean()
     return bkg
 
+
+def get_scan_info(filename):
+    with tables.open_file(filename, 'r') as f:
+        # Associate timestamps to scan plane - scan point -pairs
+        scan = pd.DataFrame()
+        scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
+        scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
+        scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where('stat == "ACQUIRING"')] # Decode is needed for values of type string
+        scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max)) # Get min and max for each plane - sep pair
+        scan.reset_index(inplace=True)
+    return scan
+
+
+def get_basic_info(filename):
+    with tables.open_file(filename, 'r') as f:
+        scan_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames) # Get first row of table "vdmscan" to save scan conditions that are constant thorugh the scan
+        scan_info['ip'] = scan_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
+        scan_info['energy'] = f.root.beam[0]['egev']
+        #scan_info[['fillnum', 'runnum', 'timestampsec', 'energy', 'ip', 'bstar5', 'xingHmurad']].to_csv(f'{outpath}/scan.csv', index=False) # Save this set of conditions to file
+    return scan_info
+
+
+def get_beam_current_and_rates(filename,  scan, luminometer):
+    with tables.open_file(filename, 'r') as f:
+        collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
+        filled = np.nonzero(np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
+
+        rate_and_beam = pd.DataFrame()
+        for p, plane in enumerate(scan.nominal_sep_plane.unique()):
+            for b, sep in enumerate(scan.sep.unique()):
+                period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
+
+                r = np.array([r['bxraw'][collidable] for r in f.root[luminometer].where(period_of_scanpoint)]) # Rates of colliding bcids for this scan point
+                beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
+
+                new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam']) # Mean over lumi sections
+                new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
+
+                new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
+                new_data.insert(0, 'sep', sep)
+                new_data.insert(0, 'plane', plane)
+
+                rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
+
+    rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam
+    rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam
+
+    rate_and_beam['rate_normalised_err'].replace(0, rate_and_beam['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate (max of error)
+
+    #rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
+
+    return rate_and_beam
+
+
+def apply_beam_current_normalisation(rate_and_beam):
+    # Mean over LS, multiply B1 * B2
+    calib = rate_and_beam.groupby('plane')[['fbct_dcct_fraction_b1', 'fbct_dcct_fraction_b2']].transform('mean').prod(axis=1)
+    rate_and_beam['beam_calibrated'] = rate_and_beam.beam / calib
+    rate_and_beam['rate_normalised'] *= calib
+    rate_and_beam['rate_normalised_err'] *= calib
+
+
+def get_plot_template(filename, fill=None, energy=None):
+    pdf = PdfPages(filename)
+
+    fig = plt.figure()
+    ax1 = fig.add_axes((.12,.3,.83,.65)) # Upper part: fit and data points
+
+    hep.cms.label(llabel="Preliminary", rlabel=fr"Fill {fill}, $\sqrt{{s}}={energy:.1f}$ TeV", loc=1)
+
+    ax1.set_ylabel('$R/(N_1 N_2)$ [arb.]')
+    ax1.set_xticklabels([])
+    ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0), useMathText=True, useOffset=False)
+    ax1.minorticks_off()
+
+    ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
+    ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
+    ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
+    ax2.set_xlabel('$\Delta$ [mm]')
+    ax2.minorticks_off()
+
+    return pdf, ax1, ax2
+
+
 def main(args):
     for filename in args.files:
         outpath = f'output/{Path(filename).stem}' # Save output to this folder
         Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
-        with tables.open_file(filename, 'r') as f:
-            collidable = np.nonzero(f.root.beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
-            filled = np.nonzero(np.logical_or(f.root.beam[0]['bxconfig1'], f.root.beam[0]['bxconfig2']))[0]
 
-            # Associate timestamps to scan plane - scan point -pairs
-            scan = pd.DataFrame()
-            scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
-            scan['sep'] = [r['sep'] for r in f.root.vdmscan.where('stat == "ACQUIRING"')]
-            scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where('stat == "ACQUIRING"')] # Decode is needed for values of type string
-            scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max)) # Get min and max for each plane - sep pair
-            scan.reset_index(inplace=True)
-            scan_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames) # Get first row of table "vdmscan" to save scan conditions that are constant thorugh the scan
-            scan_info['ip'] = scan_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
-            scan_info['energy'] = f.root.beam[0]['egev']
-            scan_info[['fillnum', 'runnum', 'timestampsec', 'energy', 'ip', 'bstar5', 'xingHmurad']].to_csv(f'{outpath}/scan.csv', index=False) # Save this set of conditions to file
-
-            rate_and_beam = pd.DataFrame()
-            for p, plane in enumerate(scan.nominal_sep_plane.unique()):
-                for b, sep in enumerate(scan.sep.unique()):
-                    period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
-
-                    r = np.array([r['bxraw'][collidable] for r in f.root[args.luminometer].where(period_of_scanpoint)]) # Rates of colliding bcids for this scan point
-                    beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['beam'].where(period_of_scanpoint)]) # Normalised beam current
-
-                    new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam']) # Mean over lumi sections
-                    new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
-
-                    new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
-                    new_data.insert(0, 'sep', sep)
-                    new_data.insert(0, 'plane', plane)
-
-                    rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
-
-
-        rate_and_beam['rate_normalised'] = rate_and_beam.rate / rate_and_beam.beam
-        rate_and_beam['rate_normalised_err'] = rate_and_beam.rate_err / rate_and_beam.beam
+        scan_info = get_basic_info(filename)
+        scan = get_scan_info(filename)
+        rate_and_beam = get_beam_current_and_rates(filename, scan, args.luminometer)
 
         if not args.no_fbct_dcct:
-            calib = rate_and_beam.groupby('plane')[['fbct_dcct_fraction_b1', 'fbct_dcct_fraction_b2']].transform('mean').prod(axis=1) # Mean over LS, multiply B1 * B2
-            rate_and_beam['beam_calibrated'] = rate_and_beam.beam / calib
-            rate_and_beam['rate_normalised'] *= calib
-            rate_and_beam['rate_normalised_err'] *= calib
+            apply_beam_current_normalisation(rate_and_beam)
 
-        rate_and_beam['rate_normalised_err'].replace(0, rate_and_beam['rate_normalised_err'].max(axis=0), inplace=True) # Add sensible error in case of 0 rate (max of error)
-
-        rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
-
-        if args.pdf: # initialize template for plots
-            pdf = PdfPages(f'{outpath}/fit_{args.luminometer}.pdf')
-
-            fig = plt.figure()
-            ax1 = fig.add_axes((.12,.3,.83,.65)) # Upper part: fit and data points
-            hep.cms.label(llabel="Preliminary", rlabel=fr"Fill {scan_info.fillnum[0]}, $\sqrt{{s}}={scan_info['energy'][0]*2/1000:.1f}$ TeV", loc=1)
-            ax1.set_ylabel('$R/(N_1 N_2)$ [arb.]')
-            ax1.set_xticklabels([])
-            ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0), useMathText=True, useOffset=False)
-            ax1.minorticks_off()
-
-            ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
-            ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
-            ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
-            ax2.set_xlabel('$\Delta$ [mm]')
-            ax2.minorticks_off()
+        if args.pdf:
+            pdf, ax1, ax2 = get_plot_template(f'{outpath}/fit_{args.luminometer}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
 
         for p, plane in enumerate(rate_and_beam.plane.unique()): # For each plane
             for b, bcid in enumerate(rate_and_beam.bcid.unique()): # For each BCID
