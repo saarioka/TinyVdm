@@ -74,21 +74,21 @@ def supergconst(x, peak, mean, cap_sigma, p, const):
 
 # Each function needs a mapping from string given as a parameter, and also a set of initial conditions
 FIT_FUNCTIONS = {
-    'sg':           {'handle': sg,          'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3}},
-    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':           {'handle': dg,          'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5}},
-    'dgConst':      {'handle': dgconst,     'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'peak_ratio': 0.5, 'cap_sigma_ratio': 0.5, 'const': 0}},
-    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0}},
-    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
-    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0}},
-    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'const': 0}},
-    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0}},
-    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'const': 0}},
-    'superG':       {'handle': superg,      'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
-    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 1e-2, 'mean': 0, 'cap_sigma': 0.3, 'p': 1, 'const': 0}},
+    'sg':           {'handle': sg,          'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3}},
+    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
+    'dg':           {'handle': dg,          'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.2, 'peak_ratio': 0.5, 'cap_sigma_ratio': 2}},
+    'dgConst':      {'handle': dgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.2, 'peak_ratio': 0.5, 'cap_sigma_ratio': 2, 'const': 0}},
+    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0}},
+    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
+    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0}},
+    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'const': 0}},
+    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0}},
+    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'const': 0}},
+    'superG':       {'handle': superg,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
+    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'p': 1, 'const': 0}},
 }
 
-PARAMETER_LIMITS = {'peak': [0, None], 'cap_sigma': [0, 2], 'mean': [-1e-1, 1e-1]}
+PARAMETER_LIMITS = {'peak': [0, None], 'cap_sigma': [1e-3, 2], 'mean': [-1e-2, 1e-2], 'peak_ratio': [0, 1], 'cap_sigma_ratio': [2, None]}
 
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
@@ -205,7 +205,7 @@ def get_plot_template(filename, fill=None, energy=None):
     ax2.set_xlabel('$\Delta$ [mm]')
     ax2.minorticks_off()
 
-    return pdf, ax1, ax2
+    return pdf, fig, ax1, ax2
 
 
 def file_has_data(filename):
@@ -213,6 +213,8 @@ def file_has_data(filename):
         if not '/scan5_beam' in f or not '/vdmscan' in f:
             return False
         if np.array(f.root.scan5_beam).size < 10:
+            return False
+        if np.count_nonzero(f.root.scan5_beam[0]['collidable']) == 0:
             return False
         return True
 
@@ -226,14 +228,16 @@ def main(args):
     fits = args.fit.split(',')
 
     for fn, filename in enumerate(filenames):
-        outpath = f'output/{Path(filename).stem}' # Save output to this folder
-        Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
+        #outpath = f'output/{Path(filename).stem}' # Save output to this folder
+        #Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
+        os.makedirs('output/data', exist_ok=True)
+        os.makedirs('output/fits', exist_ok=True)
 
         scan_info = get_basic_info(filename)
         print(scan_info)
         scan = get_scan_info(filename)
-        if scan.shape[0] < 5:  # less than 5 scan steps -> problems
-            print(f'Found only {scan.shape[0]} scan steps, skipping')
+        if scan.shape[0] < 10:  # less than 5 scan steps -> problems
+            print(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
             continue
 
         rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
@@ -241,13 +245,12 @@ def main(args):
         if not args.no_fbct_dcct:
             apply_beam_current_normalisation(rate_and_beam)
 
-        print(rate_and_beam)
-        rate_and_beam.to_csv(f'{outpath}/data.csv', index=False)
+        rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
 
         for f, fit in enumerate(fits):
             for l, luminometer in enumerate(luminometers):
                 if args.pdf:
-                    pdf, ax1, ax2 = get_plot_template(f'{outpath}/fit_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
+                    pdf, fig, ax1, ax2 = get_plot_template(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
 
                 for p, plane in enumerate(rate_and_beam.plane.unique()):
                     for b, bcid in enumerate(rate_and_beam.bcid.unique()):
@@ -256,9 +259,14 @@ def main(args):
                         data_y_err = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised_err']
 
                         least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[fit]['handle']) # Initialise minimiser with data and fit function of choice
+
+                        if FIT_FUNCTIONS[fit]['initial_values']['peak'] == 'auto':
+                            FIT_FUNCTIONS[fit]['initial_values']['peak'] = np.max(data_y)
+
                         m = Minuit(least_squares, **FIT_FUNCTIONS[fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
                         for param, limit in PARAMETER_LIMITS.items():
-                            m.limits[param] = limit
+                            if param in m.parameters:
+                                m.limits[param] = limit
                         m.migrad()  # Finds minimum of least_squares function
                         m.hesse()   # Accurately computes uncertainties
 
@@ -302,6 +310,8 @@ def main(args):
                                     item.remove()
                 if args.pdf:
                     pdf.close()
+
+                plt.close(fig)
 
                 fit_results.cap_sigma *= 1e3 # to µm
                 fit_results.cap_sigma_err *= 1e3 # to µm
