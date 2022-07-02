@@ -141,31 +141,29 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
         filled = np.nonzero(np.logical_or(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
 
         rate_and_beam = pd.DataFrame()
-        for p, plane in enumerate(scan.nominal_sep_plane.unique()):
-            for b, sep in enumerate(scan[scan.nominal_sep_plane == plane].sep):
-                print(scan)
-                period_of_scanpoint = f'(timestampsec > {scan.min_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()}) & (timestampsec <= {scan.max_time[(scan.nominal_sep_plane == plane) & (scan.sep == sep)].item()})'
+        for index, row in scan.iterrows():
+            period_of_scanpoint = f'(timestampsec > {row.min_time}) & (timestampsec <= {row.max_time})'
 
-                # Normalised beam current
-                beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['scan5_beam'].where(period_of_scanpoint)])
+            # Normalised beam current
+            beam = np.array([b['bxintensity1'][collidable]*b['bxintensity2'][collidable]/1e22 for b in f.root['scan5_beam'].where(period_of_scanpoint)])
 
-                # Mean over lumi sections
-                new_data = pd.DataFrame(np.array([beam.mean(axis=0)]).T, columns=['beam'])
-                #new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam'])
+            # Mean over lumi sections
+            new_data = pd.DataFrame(np.array([beam.mean(axis=0)]).T, columns=['beam'])
+            #new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam'])
 
-                for luminometer in luminometers:
-                    # Rates of colliding bcids for this scan point
-                    r = np.array([r['bxraw'][collidable] for r in f.root[luminometer].where(period_of_scanpoint)])
-                    new_data[luminometer] = r.mean(axis=0)
-                    new_data[f'{luminometer}_err'] = stats.sem(r, axis=0)
+            for luminometer in luminometers:
+                # Rates of colliding bcids for this scan point
+                r = np.array([r['bxraw'][collidable] for r in f.root[luminometer].where(period_of_scanpoint)])
+                new_data[luminometer] = r.mean(axis=0)
+                new_data[f'{luminometer}_err'] = stats.sem(r, axis=0)
 
-                new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
+            new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
 
-                new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
-                new_data.insert(0, 'sep', sep)
-                new_data.insert(0, 'plane', plane)
+            new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
+            new_data.insert(0, 'sep', row.sep)
+            new_data.insert(0, 'plane', row.nominal_sep_plane)
 
-                rate_and_beam = new_data if p == 0 and b == 0 else pd.concat([rate_and_beam, new_data])
+            rate_and_beam = new_data if index == 0 else pd.concat([rate_and_beam, new_data])
 
     for luminometer in luminometers:
         rate_and_beam[f'{luminometer}_normalised'] = rate_and_beam[luminometer] / rate_and_beam.beam
