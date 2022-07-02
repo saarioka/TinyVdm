@@ -11,84 +11,14 @@ import numpy as np
 import mplhep as hep
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
-from scipy.special import gamma
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
+
+import fits
 
 matplotlib.use('Agg')
 
 plt.style.use(hep.style.CMS)
-
-# Define functions that may be fit to the rates
-def sg(x, peak, mean, cap_sigma):
-    return peak*np.exp(-(x-mean)**2/(2*cap_sigma**2))
-
-
-def sgconst(x, peak, mean, cap_sigma, constant):
-    return sg(x, peak, mean, cap_sigma) + constant
-
-
-def dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio):
-    return sg(x, peak*peak_ratio, mean, cap_sigma*cap_sigma_ratio) + sg(x, peak*(1-peak_ratio), mean, cap_sigma*(1-cap_sigma_ratio))
-
-
-def dgconst(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio, constant):
-    return dg(x, peak, mean, cap_sigma, peak_ratio, cap_sigma_ratio) + constant
-
-
-def polyg6(x, peak, mean, cap_sigma, r2, r4, r6):
-    x0 = x-mean
-    sigma = cap_sigma / (1 + r2 + 3*r4 + 15*r6)
-    return peak*(1 + r2*(x0/sigma)**2 + r4*(x0/sigma)**4 + r6*(x0/sigma)**6)*np.exp(-(x0/sigma)**2/2)
-
-
-def polyg6const(x, peak, mean, cap_sigma, r2, r4, r6, const):
-    return polyg6(x, peak, mean, cap_sigma, r2, r4, r6) + const
-
-
-def polyg4(x, peak, mean, cap_sigma, r2, r4):
-    return polyg6(x, peak, mean, cap_sigma, r2, r4, 0)
-
-
-def polyg4const(x, peak, mean, cap_sigma, r2, r4, const):
-    return polyg6const(x, peak, mean, cap_sigma, r2, r4, 0, const)
-
-
-def polyg2(x, peak, mean, cap_sigma, r2):
-    return polyg4(x, peak, mean, cap_sigma, r2, 0)
-
-
-def polyg2const(x, peak, mean, cap_sigma, r2, const):
-    return polyg4const(x, peak, mean, cap_sigma, r2, 0, const)
-
-
-def superg(x, peak, mean, cap_sigma, p):
-    beta = p*2.0
-    alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*cap_sigma
-    return peak*np.exp(-(np.abs(x-mean)/alpha)**beta)
-
-
-def supergconst(x, peak, mean, cap_sigma, p, const):
-    return superg(x, peak, mean, cap_sigma, p) + const
-
-
-# Each function needs a mapping from string given as a parameter, and also a set of initial conditions
-FIT_FUNCTIONS = {
-    'sg':           {'handle': sg,          'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3}},
-    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'constant': 0}},
-    'dg':           {'handle': dg,          'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.2, 'peak_ratio': 0.5, 'cap_sigma_ratio': 2}},
-    'dgConst':      {'handle': dgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.2, 'peak_ratio': 0.5, 'cap_sigma_ratio': 2, 'const': 0}},
-    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0}},
-    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
-    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0}},
-    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'r4': 0, 'const': 0}},
-    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0}},
-    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'r2': 0, 'const': 0}},
-    'superG':       {'handle': superg,      'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'p': 1}},
-    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 'auto', 'mean': 0, 'cap_sigma': 0.3, 'p': 1, 'const': 0}},
-}
-
-PARAMETER_LIMITS = {'peak': [0, None], 'cap_sigma': [1e-3, 2], 'mean': [-1e-2, 1e-2], 'peak_ratio': [0, 1], 'cap_sigma_ratio': [2, None]}
 
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
@@ -104,7 +34,7 @@ def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
     filled_noncolliding = np.nonzero(np.logical_xor(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
     rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer].where(period_of_scanpoint)])
     rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer].where(period_of_scanpoint)])
-    bkg = 2*rate_nc.mean() - rate_ag.mean()
+    bkg = 2 * rate_nc.mean() - rate_ag.mean()
     return bkg
 
 
@@ -149,7 +79,6 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
 
             # Mean over lumi sections
             new_data = pd.DataFrame(np.array([beam.mean(axis=0)]).T, columns=['beam'])
-            #new_data = pd.DataFrame(np.array([r.mean(axis=0), stats.sem(r, axis=0), beam.mean(axis=0)]).T, columns=['rate', 'rate_err', 'beam'])
 
             for luminometer in luminometers:
                 # Rates of colliding bcids for this scan point
@@ -171,8 +100,6 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
 
         # Add sensible error in case of 0 rate (max of error)
         rate_and_beam[f'{luminometer}_normalised_err'].replace(0, rate_and_beam[f'{luminometer}_normalised_err'].max(axis=0), inplace=True)
-
-    #rate_and_beam.to_csv(f'{outpath}/rate_and_beam.csv', index=False)
 
     return rate_and_beam
 
@@ -218,6 +145,27 @@ def file_has_data(filename):
             return False
         return True
 
+
+def make_fit(x, y, yerr, fit):
+    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit]['handle'])  # Initialise minimiser with data and fit function of choice
+
+    ff = fits.fit_functions[fit]
+
+    if ff['initial_values']['peak'] == 'auto':
+        ff['initial_values']['peak'] = np.max(y)
+
+    # Give the initial values defined in "fit_functions"
+    m = Minuit(least_squares, **ff['initial_values'])
+
+    for param, limit in fits.parameter_limits.items():
+        if param in m.parameters:
+            m.limits[param] = limit
+
+    m.migrad()  # Finds minimum of least_squares function
+    m.hesse()   # Accurately computes uncertainties
+    return m
+
+
 def main(args):
     if args.clean and os.path.isdir('output'):
         shutil.rmtree('output')
@@ -225,16 +173,14 @@ def main(args):
     filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
 
     luminometers = args.luminometers.split(',')
-    fits = args.fit.split(',')
+    fitfunctions = args.fit.split(',')
 
     for fn, filename in enumerate(filenames):
-        #outpath = f'output/{Path(filename).stem}' # Save output to this folder
-        #Path(outpath).mkdir(parents=True, exist_ok=True) # Create output folder if not existing already
         os.makedirs('output/data', exist_ok=True)
         os.makedirs('output/fits', exist_ok=True)
 
         scan_info = get_basic_info(filename)
-        print(scan_info)
+        print(scan_info.to_string(index=False))
         scan = get_scan_info(filename)
         if scan.shape[0] < 10:  # less than 5 scan steps -> problems
             print(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
@@ -247,31 +193,22 @@ def main(args):
 
         rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
 
-        for f, fit in enumerate(fits):
-            for l, luminometer in enumerate(luminometers):
+        for l, luminometer in enumerate(luminometers):
+            for f, fit in enumerate(fitfunctions):
                 if args.pdf:
                     pdf, fig, ax1, ax2 = get_plot_template(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
 
                 for p, plane in enumerate(rate_and_beam.plane.unique()):
                     for b, bcid in enumerate(rate_and_beam.bcid.unique()):
-                        data_x = scan[scan.nominal_sep_plane == plane]['sep']
-                        data_y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised']
-                        data_y_err = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised_err']
+                        x = scan[scan.nominal_sep_plane == plane]['sep']
+                        y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised']
+                        yerr = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised_err']
 
-                        least_squares = LeastSquares(data_x, data_y, data_y_err, FIT_FUNCTIONS[fit]['handle']) # Initialise minimiser with data and fit function of choice
-
-                        if FIT_FUNCTIONS[fit]['initial_values']['peak'] == 'auto':
-                            FIT_FUNCTIONS[fit]['initial_values']['peak'] = np.max(data_y)
-
-                        m = Minuit(least_squares, **FIT_FUNCTIONS[fit]['initial_values']) # Give the initial values defined in "FIT_FUNCTIONS"
-                        for param, limit in PARAMETER_LIMITS.items():
-                            if param in m.parameters:
-                                m.limits[param] = limit
-                        m.migrad()  # Finds minimum of least_squares function
-                        m.hesse()   # Accurately computes uncertainties
+                        m = make_fit(x, y, yerr, fit)
 
                         new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
                         new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
+
                         new['valid'] =  m.valid
                         new['accurate'] = m.accurate
                         new.insert(0, 'bcid', bcid)
@@ -284,21 +221,21 @@ def main(args):
 
                         if args.pdf:
                             figure_items = []
-                            figure_items.append(ax1.errorbar(data_x, data_y, data_y_err, fmt='ko')) # Plot the data points
-                            x_dense = np.linspace(np.min(data_x), np.max(data_x))
-                            figure_items.append(ax1.plot(x_dense, FIT_FUNCTIONS[fit]['handle'](x_dense, *m.values), 'k')) # Plot the fit result
+                            figure_items.append(ax1.errorbar(x, y, yerr, fmt='ko')) # Plot the data points
+                            x_dense = np.linspace(np.min(x), np.max(x))
+                            figure_items.append(ax1.plot(x_dense, fits.fit_functions[fit]['handle'](x_dense, *m.values), 'k')) # Plot the fit result
 
-                            fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(data_x) - m.nfit}']
+                            fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
                             for param, v, e in zip(m.parameters, m.values, m.errors):
                                 fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
 
-                            fit_info = [info.replace('cap_sigma', '$\Sigma$') for info in fit_info]
+                            fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
 
                             figure_items.append(ax1.text(0.95, 0.95, '\n'.join(fit_info), transform=ax1.transAxes, fontsize=14, fontweight='bold',
                                 verticalalignment='top', horizontalalignment='right'))
 
-                            residuals = (data_y.to_numpy() - FIT_FUNCTIONS[fit]['handle'](data_x, *m.values).to_numpy()) / data_y_err.to_numpy()
-                            figure_items.append(ax2.scatter(data_x, residuals, c='k'))
+                            residuals = (y.to_numpy() - fits.fit_functions[fit]['handle'](x, *m.values).to_numpy()) / yerr.to_numpy()
+                            figure_items.append(ax2.scatter(x, residuals, c='k'))
                             lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
 
                             pdf.savefig()
@@ -313,18 +250,18 @@ def main(args):
 
                 plt.close(fig)
 
-                fit_results.cap_sigma *= 1e3 # to µm
-                fit_results.cap_sigma_err *= 1e3 # to µm
+                fit_results.capsigma *= 1e3 # to µm
+                fit_results.capsigma_err *= 1e3 # to µm
 
                 try:
-                    val = fit_results.pivot(index='bcid', columns=['plane'], values=['cap_sigma', 'peak', 'cap_sigma_err', 'peak_err'])
+                    val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
                 except Exception as e:
                     print(f'{filename}: {e}')
                     continue
 
-                sigvis = np.pi * val.cap_sigma.prod(axis=1) * val.peak.sum(axis=1)
+                sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
 
-                sigvis_err = (val.cap_sigma_err**2 / val.cap_sigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
+                sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
                 sigvis_err = np.sqrt(sigvis_err) * sigvis
 
                 lumi = pd.concat([sigvis, sigvis_err], axis=1)
@@ -344,7 +281,7 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {FIT_FUNCTIONS.keys()}', default='sg')
+    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {fits.fit_functions.keys()}', default='sg')
     parser.add_argument('-c', '--clean', action='store_true', help='Make a clean output folder')
     parser.add_argument('files', nargs='*')
 

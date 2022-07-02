@@ -14,13 +14,13 @@ python3 -m pip install -U -r requirements.txt
 
 ## Contents
 
-- `minimal_example.ipynb`  
+- `minimal_example.ipynb`
     Jupyter Notebook with detailed description about the process. This is a good starting point to run your own test analysis
 
 - `minimal_example.html`
     Pre-run version of the previous notebook, featuring printouts. Handy study material if you do not want to set up your environment.
 
-- `vdm.py`
+- `main.py`
     Script to be called form the command line, has more features than `minimal_example`
 
 ## Running
@@ -39,21 +39,21 @@ export PYTHONPATH=$CERNBOX_HOME/.local/lib/python3.9/site-packages:$PYTHONPATH
 
 ### CMD
 
-After installing dependencies, run analysis for the preferred example file using `vdm.py`, for example
+After installing dependencies, run analysis for the preferred example file using `main.py`, for example
 
 ```bash
-python3 vdm.py -l pltlumizero /eos/cms/store/group/dpg_bril/comm_bril/vdmdata/2021/original/7525/7525_2110302352_2110310014.hd5
+python3 main.py -l pltlumizero /eos/cms/store/group/dpg_bril/comm_bril/vdmdata/2021/original/7525/7525_2110302352_2110310014.hd5
 ```
 
 I suggest looking at the code while comparing the printouts to the code statements to get an idea what is being calculated.
 
 If you used the exact command above, look into folder `output` and compare it to the contents of `framework_results_without_beam_current_calibration`.
 
-Also try flags `-pdf`, `-cbc`, `-fit` and other values for `-l`. See help with `python3 vdm.py --help` 
+Also try flags `-pdf`, `-cbc`, `-fit` and other values for `-l`. See help with `python3 main.py --help`
 
 ## List of features (CMD)
 - Choice of luminometer
 - Choice of fit
 - Beam current calibration
 - Fit pdfs
-- Multiple files as input. Give a list of files as unnamed parameter or pipe the output of `ls` with ` ls *.hd5 | xargs python3 vdm.py -l <lumi> `
+- Multiple files as input. Give a list of files as unnamed parameter or pipe the output of `ls` with ` ls *.hd5 | xargs python3 main.py -l <lumi> `
