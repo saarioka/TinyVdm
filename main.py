@@ -4,21 +4,14 @@ import argparse
 import shutil
 import os
 import tables
-import matplotlib
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import mplhep as hep
-from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
 
 import fits
-
-matplotlib.use('Agg')
-
-plt.style.use(hep.style.CMS)
+import fit_plotter
 
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
@@ -113,28 +106,6 @@ def apply_beam_current_normalisation(rate_and_beam):
         rate_and_beam[rates] *= calib
 
 
-def get_plot_template(filename, fill=None, energy=None):
-    pdf = PdfPages(filename)
-
-    fig = plt.figure()
-    ax1 = fig.add_axes((.12,.3,.83,.65)) # Upper part: fit and data points
-
-    hep.cms.label(llabel="Preliminary", rlabel=fr"Fill {fill}, $\sqrt{{s}}={energy:.1f}$ TeV", loc=1)
-
-    ax1.set_ylabel('$R/(N_1 N_2)$ [arb.]')
-    ax1.set_xticklabels([])
-    ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0), useMathText=True, useOffset=False)
-    ax1.minorticks_off()
-
-    ax2 = fig.add_axes((.12,.1,.83,.2)) # Lower part: residuals
-    ax2.ticklabel_format(axis='y', style='plain', useOffset=False)
-    ax2.set_ylabel('Residual [$\sigma$]',fontsize=20)
-    ax2.set_xlabel('$\Delta$ [mm]')
-    ax2.minorticks_off()
-
-    return pdf, fig, ax1, ax2
-
-
 def file_has_data(filename):
     with tables.open_file(filename, mode='r') as f:
         if not '/scan5_beam' in f or not '/vdmscan' in f:
@@ -196,7 +167,7 @@ def main(args):
         for l, luminometer in enumerate(luminometers):
             for f, fit in enumerate(fitfunctions):
                 if args.pdf:
-                    pdf, fig, ax1, ax2 = get_plot_template(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
+                    plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
 
                 for p, plane in enumerate(rate_and_beam.plane.unique()):
                     for b, bcid in enumerate(rate_and_beam.bcid.unique()):
@@ -209,7 +180,7 @@ def main(args):
                         new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
                         new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
 
-                        new['valid'] =  m.valid
+                        new['valid'] = m.valid
                         new['accurate'] = m.accurate
                         new.insert(0, 'bcid', bcid)
                         new.insert(0, 'plane', plane)
@@ -220,35 +191,14 @@ def main(args):
                         fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
 
                         if args.pdf:
-                            figure_items = []
-                            figure_items.append(ax1.errorbar(x, y, yerr, fmt='ko')) # Plot the data points
-                            x_dense = np.linspace(np.min(x), np.max(x))
-                            figure_items.append(ax1.plot(x_dense, fits.fit_functions[fit]['handle'](x_dense, *m.values), 'k')) # Plot the fit result
-
                             fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
                             for param, v, e in zip(m.parameters, m.values, m.errors):
                                 fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
-
+                            fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
                             fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
+                            fit_info = '\n'.join(fit_info)
 
-                            figure_items.append(ax1.text(0.95, 0.95, '\n'.join(fit_info), transform=ax1.transAxes, fontsize=14, fontweight='bold',
-                                verticalalignment='top', horizontalalignment='right'))
-
-                            residuals = (y.to_numpy() - fits.fit_functions[fit]['handle'](x, *m.values).to_numpy()) / yerr.to_numpy()
-                            figure_items.append(ax2.scatter(x, residuals, c='k'))
-                            lim = list(plt.xlim()); figure_items.append(ax2.plot(lim, [0, 0], 'k:')); plt.xlim(lim) # plot without changing xlim
-
-                            pdf.savefig()
-
-                            for item in figure_items: # Only delete lines and fit results, leave general things
-                                if isinstance(item, list):
-                                    item[0].remove()
-                                else:
-                                    item.remove()
-                if args.pdf:
-                    pdf.close()
-
-                plt.close(fig)
+                            plotter.create_page(x, y, yerr, fit, fit_info, *m.values)
 
                 fit_results.capsigma *= 1e3 # to µm
                 fit_results.capsigma_err *= 1e3 # to µm
