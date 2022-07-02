@@ -3,6 +3,7 @@ import mplhep as hep
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from jacobi import propagate
 
 import fits
 
@@ -34,11 +35,17 @@ class plotter():
         self.pdf.close()
         plt.close(self.fig)
 
-    def create_page(self, x, y, yerr, fit, info, *argv):
+    def create_page(self, x, y, yerr, fit, info, covariance=None, *argv):
         figure_items = []  # save handles here to be able to delete them without affecting template
         figure_items.append(self.ax1.errorbar(x, y, yerr, fmt='k.', capsize=5)) # Plot the data points
 
         x_dense = np.linspace(np.min(x), np.max(x))
+
+        if covariance is not None:
+            yy, ycov = propagate(lambda p: fits.fit_functions[fit]['handle'](x_dense, *p), argv, covariance)
+            yerr_prop = np.diag(ycov) ** 0.5
+            figure_items.append(self.ax1.fill_between(x_dense, yy - yerr_prop, yy + yerr_prop, facecolor="k", alpha=0.3))
+
         figure_items.append(self.ax1.plot(x_dense, fits.fit_functions[fit]['handle'](x_dense, *argv), 'k')) # Plot the fit result
 
         figure_items.append(self.ax1.text(0.95, 0.95, info, transform=self.ax1.transAxes, fontsize=14, fontweight='bold',

@@ -118,12 +118,12 @@ def file_has_data(filename):
 
 
 def make_fit(x, y, yerr, fit):
-    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit]['handle'])  # Initialise minimiser with data and fit function of choice
-
     ff = fits.fit_functions[fit]
 
     if ff['initial_values']['peak'] == 'auto':
         ff['initial_values']['peak'] = np.max(y)
+
+    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit]['handle'])  # Initialise minimiser with data and fit function of choice
 
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **ff['initial_values'])
@@ -198,7 +198,7 @@ def main(args):
                             fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
                             fit_info = '\n'.join(fit_info)
 
-                            plotter.create_page(x, y, yerr, fit, fit_info, *m.values)
+                            plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
 
                 fit_results.capsigma *= 1e3 # to µm
                 fit_results.capsigma_err *= 1e3 # to µm

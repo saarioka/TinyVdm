@@ -56,18 +56,18 @@ def supergconst(x, peak, mean, capsigma, p, const):
 
 # Each function needs a mapping from string given as a parameter, and also a set of initial conditions
 fit_functions = {
-    'sg':           {'handle': sg,          'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3}},
-    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'constant': 0}},
+    'sg':           {'handle': sg,          'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4}},
+    'sgConst':      {'handle': sgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'constant': 0}},
     'dg':           {'handle': dg,          'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.2, 'peak_ratio': 0.5, 'capsigma_ratio': 2}},
     'dgConst':      {'handle': dgconst,     'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.2, 'peak_ratio': 0.5, 'capsigma_ratio': 2, 'const': 0}},
-    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0}},
-    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
-    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0, 'r4': 0}},
-    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0, 'r4': 0, 'const': 0}},
-    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0}},
-    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'r2': 0, 'const': 0}},
-    'superG':       {'handle': superg,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'p': 1}},
-    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.3, 'p': 1, 'const': 0}},
+    'polyG6':       {'handle': polyg6,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0, 'r4': 0, 'r6': 0}},
+    'polyG6Const':  {'handle': polyg6const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0, 'r4': 0, 'r6': 0, 'const': 0}},
+    'polyG4':       {'handle': polyg4,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0, 'r4': 0}},
+    'polyG4onst':   {'handle': polyg4const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0, 'r4': 0, 'const': 0}},
+    'polyG2':       {'handle': polyg2,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0}},
+    'polyG2Const':  {'handle': polyg2const, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'r2': 0, 'const': 0}},
+    'superG':       {'handle': superg,      'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'p': 1}},
+    'superGConst':  {'handle': supergconst, 'initial_values': {'peak': 'auto', 'mean': 0, 'capsigma': 0.4, 'p': 1, 'const': 0}},
 }
 
 parameter_limits = {
