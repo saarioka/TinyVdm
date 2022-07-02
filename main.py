@@ -193,7 +193,7 @@ def main(args):
                         if args.pdf:
                             fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
                             for param, v, e in zip(m.parameters, m.values, m.errors):
-                                fit_info.append(f'{param} = ${v:.3e} \\pm {e:.3e}$')
+                                fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
                             fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
                             fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
                             fit_info = '\n'.join(fit_info)

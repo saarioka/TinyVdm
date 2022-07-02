@@ -11,6 +11,13 @@ matplotlib.use('Agg')
 
 plt.style.use(hep.style.CMS)
 
+
+def as_si(x, ndp=2):
+    s = '{x:0.{ndp:d}e}'.format(x=x, ndp=ndp)
+    m, e = s.split('e')
+    return r'{m:s}\times 10^{{{e:d}}}'.format(m=m, e=int(e))
+
+
 class plotter():
     def __init__(self, filename, fill=None, energy=None):
         self.pdf = PdfPages(filename)
@@ -37,7 +44,7 @@ class plotter():
 
     def create_page(self, x, y, yerr, fit, info, covariance=None, *argv):
         figure_items = []  # save handles here to be able to delete them without affecting template
-        figure_items.append(self.ax1.errorbar(x, y, yerr, fmt='k.', capsize=5)) # Plot the data points
+        figure_items.append(self.ax1.errorbar(x, y, yerr, fmt='k.', linewidth=2, elinewidth=2, capsize=5, capthick=2)) # Plot the data points
 
         x_dense = np.linspace(np.min(x), np.max(x))
 
@@ -48,11 +55,11 @@ class plotter():
 
         figure_items.append(self.ax1.plot(x_dense, fits.fit_functions[fit]['handle'](x_dense, *argv), 'k')) # Plot the fit result
 
-        figure_items.append(self.ax1.text(0.95, 0.95, info, transform=self.ax1.transAxes, fontsize=14, fontweight='bold',
-            verticalalignment='top', horizontalalignment='right'))
+        figure_items.append(self.ax1.text(0.97, 0.97, info, transform=self.ax1.transAxes, fontsize=14, fontweight='bold',
+                            verticalalignment='top', horizontalalignment='right'))
 
         residuals = (y.to_numpy() - fits.fit_functions[fit]['handle'](x, *argv).to_numpy()) / yerr.to_numpy()
-        figure_items.append(self.ax2.errorbar(x, residuals, 1, fmt='k.', capsize=5))
+        figure_items.append(self.ax2.errorbar(x, residuals, 1, fmt='k.', linewidth=2, elinewidth=2, capsize=5, capthick=2))
 
         # plot without changing xlim
         lim = list(plt.xlim())
