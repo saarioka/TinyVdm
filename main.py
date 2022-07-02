@@ -1,6 +1,7 @@
 from pathlib import Path
 import argparse
 
+import yaml
 import shutil
 import os
 import tables
@@ -13,6 +14,7 @@ from iminuit.cost import LeastSquares
 import fits
 import fit_plotter
 
+CONFIG = 'config.yml'
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
     fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
@@ -53,9 +55,10 @@ def get_basic_info(filename):
     with tables.open_file(filename, 'r') as f:
         # Get first row of table "vdmscan" to save scan conditions that are constant thorugh the scan
         scan_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames)
+        scan_info['time'] = pd.to_datetime(scan_info['timestampsec'], unit='s').dt.strftime('%d.%m.%Y, %H:%M:%S')
         #scan_info['ip'] = scan_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
         scan_info['energy'] = f.root.scan5_beam[0]['egev']
-    return scan_info[['timestampsec', 'fillnum', 'runnum', 'energy', 'ip', 'bstar5', 'xingHmurad']]
+    return scan_info[['time', 'fillnum', 'runnum', 'energy', 'ip', 'bstar5', 'xingHmurad']]
 
 
 def get_beam_current_and_rates(filename,  scan, luminometers):
@@ -118,17 +121,20 @@ def file_has_data(filename):
 
 
 def make_fit(x, y, yerr, fit):
-    ff = fits.fit_functions[fit]
+    with open(CONFIG, 'r') as cfg:
+        config = yaml.safe_load(cfg)
 
-    if ff['initial_values']['peak'] == 'auto':
-        ff['initial_values']['peak'] = np.max(y)
+    initial = config['fit_parameter_initial_values'][fit]
 
-    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit]['handle'])  # Initialise minimiser with data and fit function of choice
+    if initial['peak'] == 'auto':
+        initial['peak'] = np.max(y)
+
+    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit])  # Initialise minimiser with data and fit function of choice
 
     # Give the initial values defined in "fit_functions"
-    m = Minuit(least_squares, **ff['initial_values'])
+    m = Minuit(least_squares, **initial)
 
-    for param, limit in fits.parameter_limits.items():
+    for param, limit in config['fit_parameter_limits'].items():
         if param in m.parameters:
             m.limits[param] = limit
 

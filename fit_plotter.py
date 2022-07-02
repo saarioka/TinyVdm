@@ -49,22 +49,27 @@ class plotter():
         x_dense = np.linspace(np.min(x), np.max(x))
 
         if covariance is not None:
-            yy, ycov = propagate(lambda p: fits.fit_functions[fit]['handle'](x_dense, *p), argv, covariance)
+            yy, ycov = propagate(lambda p: fits.fit_functions[fit](x_dense, *p), argv, covariance)
             yerr_prop = np.diag(ycov) ** 0.5
             figure_items.append(self.ax1.fill_between(x_dense, yy - yerr_prop, yy + yerr_prop, facecolor="k", alpha=0.3))
 
-        figure_items.append(self.ax1.plot(x_dense, fits.fit_functions[fit]['handle'](x_dense, *argv), 'k')) # Plot the fit result
+        figure_items.append(self.ax1.plot(x_dense, fits.fit_functions[fit](x_dense, *argv), 'k')) # Plot the fit result
 
         figure_items.append(self.ax1.text(0.97, 0.97, info, transform=self.ax1.transAxes, fontsize=14, fontweight='bold',
                             verticalalignment='top', horizontalalignment='right'))
 
-        residuals = (y.to_numpy() - fits.fit_functions[fit]['handle'](x, *argv).to_numpy()) / yerr.to_numpy()
+        residuals = (y.to_numpy() - fits.fit_functions[fit](x, *argv).to_numpy()) / yerr.to_numpy()
         figure_items.append(self.ax2.errorbar(x, residuals, 1, fmt='k.', linewidth=2, elinewidth=2, capsize=5, capthick=2))
 
         # plot without changing xlim
         lim = list(plt.xlim())
         figure_items.append(self.ax2.plot(lim, [0, 0], 'k:'))
         plt.xlim(lim)
+
+        self.ax1.relim()
+        self.ax1.autoscale()
+        self.ax2.relim()
+        self.ax2.autoscale()
 
         self.pdf.savefig()
 
