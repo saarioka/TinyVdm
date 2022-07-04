@@ -1,5 +1,6 @@
 # Fits
 
+# YAML technicality: floating point numbers need the dot before 'e'
 fit_parameter_limits:
   peak: [0, null]
   capsigma: [1.e-2, 2]
@@ -12,7 +13,7 @@ fit_parameter_initial_values:
   sg:
     peak: auto
     mean: 0
-    capsigma': 0.4
+    capsigma: 0.4
   sgConst:
     peak: auto
     mean: 0

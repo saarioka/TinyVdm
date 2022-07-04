@@ -16,23 +16,6 @@ import fit_plotter
 
 CONFIG = 'config.yml'
 
-def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
-    fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
-    fbct_b2 = np.array([b['bxintensity2'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
-    dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['scan5_beam'].where(period_of_scanpoint)]) # Normalised beam current
-    return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
-
-
-def bkg_from_noncolliding(f, period_of_scanpoint, luminometer): # WIP
-    """Not working"""
-    abort_gap_mask = [*range(3444, 3564)]
-    filled_noncolliding = np.nonzero(np.logical_xor(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
-    rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer].where(period_of_scanpoint)])
-    rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer].where(period_of_scanpoint)])
-    bkg = 2 * rate_nc.mean() - rate_ag.mean()
-    return bkg
-
-
 def get_scan_info(filename):
     with tables.open_file(filename, 'r') as f:
         # Associate timestamps to scan plane - scan point -pairs
@@ -44,6 +27,7 @@ def get_scan_info(filename):
 
         # Decode is needed for values of type string
         scan['nominal_sep_plane'] = [r['nominal_sep_plane'].decode('utf-8') for r in f.root.vdmscan.where(quality_condition)]
+        scan['nominal_sep_plane'] = scan['nominal_sep_plane'].astype(str)
 
         # Get min and max for each plane - sep pair
         scan = scan.groupby(['nominal_sep_plane', 'sep']).agg(min_time=('timestampsec', np.min), max_time=('timestampsec', np.max))
@@ -66,7 +50,6 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
         collidable = np.nonzero(f.root.scan5_beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
         filled = np.nonzero(np.logical_or(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
 
-        rate_and_beam = pd.DataFrame()
         for index, row in scan.iterrows():
             period_of_scanpoint = f'(timestampsec > {row.min_time}) & (timestampsec <= {row.max_time})'
 
@@ -84,12 +67,17 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
 
             new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
 
-            new_data.insert(0, 'bcid', collidable+1) # Move to 1-indexed values of BCID
+            new_data.insert(0, 'correction', 'none')
+            new_data.insert(0, 'bcid', collidable + 1) # Move to 1-indexed values of BCID
             new_data.insert(0, 'sep', row.sep)
             new_data.insert(0, 'plane', row.nominal_sep_plane)
 
             rate_and_beam = new_data if index == 0 else pd.concat([rate_and_beam, new_data])
 
+    return rate_and_beam.reset_index(drop=True)
+
+
+def normalise_beam_current(rate_and_beam, luminometers):
     for luminometer in luminometers:
         rate_and_beam[f'{luminometer}_normalised'] = rate_and_beam[luminometer] / rate_and_beam.beam
         rate_and_beam[f'{luminometer}_normalised_err'] = rate_and_beam[f'{luminometer}_err'] / rate_and_beam.beam
@@ -97,7 +85,32 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
         # Add sensible error in case of 0 rate (max of error)
         rate_and_beam[f'{luminometer}_normalised_err'].replace(0, rate_and_beam[f'{luminometer}_normalised_err'].max(axis=0), inplace=True)
 
-    return rate_and_beam
+
+def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
+    corrected_rate_and_beam = rate_and_beam.copy()
+    corrected_rate_and_beam.correction = 'background'
+    with tables.open_file(filename, 'r') as f:
+        filled_noncolliding = np.nonzero(np.logical_xor(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
+        for luminometer in luminometers:
+            abort_gap_mask = [*range(3421, 3535)] if 'bcm1f' in luminometer else [*range(3444, 3564)]
+
+            rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer]])
+            rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer]])
+            bkg = 2 * rate_nc.mean() - rate_ag.mean()
+            bkg_err = np.sqrt(4*stats.sem(rate_nc.flatten())**2 + stats.sem(rate_ag.flatten())**2)
+
+            rate_and_beam[f'bkg_{luminometer}'] = bkg
+            rate_and_beam[f'bkg_{luminometer}_err'] = bkg_err
+            rate_and_beam[luminometer] -= bkg
+            rate_and_beam[f'{luminometer}_err'] = np.sqrt(rate_and_beam[f'{luminometer}_err']**2 + bkg_err**2)
+    return corrected_rate_and_beam
+
+
+def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
+    fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
+    fbct_b2 = np.array([b['bxintensity2'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
+    dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['scan5_beam'].where(period_of_scanpoint)]) # Normalised beam current
+    return np.array([fbct_b1.sum(), fbct_b2.sum()]) / dcct.sum(axis=0)
 
 
 def apply_beam_current_normalisation(rate_and_beam):
@@ -150,6 +163,9 @@ def main(args):
     filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
 
     luminometers = args.luminometers.split(',')
+    corrections = args.corrections.split(',')
+    if 'none' not in corrections:
+        corrections.insert(0, 'none')
     fitfunctions = args.fit.split(',')
 
     for fn, filename in enumerate(filenames):
@@ -159,11 +175,17 @@ def main(args):
         scan_info = get_basic_info(filename)
         print(scan_info.to_string(index=False))
         scan = get_scan_info(filename)
-        if scan.shape[0] < 10:  # less than 5 scan steps -> problems
+        if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
             print(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
             continue
 
         rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
+
+        if 'background' in corrections:
+            bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
+            rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
+
+        normalise_beam_current(rate_and_beam, luminometers)
 
         if not args.no_fbct_dcct:
             apply_beam_current_normalisation(rate_and_beam)
@@ -171,62 +193,65 @@ def main(args):
         rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
 
         for l, luminometer in enumerate(luminometers):
-            for f, fit in enumerate(fitfunctions):
-                if args.pdf:
-                    plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
+            for c, correction in enumerate(corrections):
+                for f, fit in enumerate(fitfunctions):
+                    if args.pdf:
+                        plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{correction}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
 
-                for p, plane in enumerate(rate_and_beam.plane.unique()):
-                    for b, bcid in enumerate(rate_and_beam.bcid.unique()):
-                        x = scan[scan.nominal_sep_plane == plane]['sep']
-                        y = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised']
-                        yerr = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid)][f'{luminometer}_normalised_err']
+                    for p, plane in enumerate(rate_and_beam.plane.unique()):
+                        for b, bcid in enumerate(rate_and_beam.bcid.unique()):
+                            data = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid) & (rate_and_beam.correction == correction)]
+                            x = scan[scan.nominal_sep_plane == plane]['sep']
+                            y = data[f'{luminometer}_normalised']
+                            yerr = data[f'{luminometer}_normalised_err']
 
-                        m = make_fit(x, y, yerr, fit)
+                            m = make_fit(x, y, yerr, fit)
 
-                        new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
-                        new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
+                            new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
+                            new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
 
-                        new['valid'] = m.valid
-                        new['accurate'] = m.accurate
-                        new.insert(0, 'bcid', bcid)
-                        new.insert(0, 'plane', plane)
-                        new.insert(0, 'fit', fit)
-                        new.insert(0, 'luminometer', luminometer)
-                        new.insert(0, 'filename', Path(filename).stem)
+                            new['valid'] = m.valid
+                            new['accurate'] = m.accurate
+                            new.insert(0, 'bcid', bcid)
+                            new.insert(0, 'plane', plane)
+                            new.insert(0, 'fit', fit)
+                            new.insert(0, 'correction', correction)
+                            new.insert(0, 'luminometer', luminometer)
+                            new.insert(0, 'filename', Path(filename).stem)
 
-                        fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
+                            fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
 
-                        if args.pdf:
-                            fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
-                            for param, v, e in zip(m.parameters, m.values, m.errors):
-                                fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
-                            fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
-                            fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
-                            fit_info = '\n'.join(fit_info)
+                            if args.pdf:
+                                fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
+                                for param, v, e in zip(m.parameters, m.values, m.errors):
+                                    fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
+                                fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
+                                fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
+                                fit_info = '\n'.join(fit_info)
 
-                            plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
+                                plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
 
-                fit_results.capsigma *= 1e3 # to µm
-                fit_results.capsigma_err *= 1e3 # to µm
+                    fit_results.capsigma *= 1e3 # to µm
+                    fit_results.capsigma_err *= 1e3 # to µm
 
-                try:
-                    val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
-                except Exception as e:
-                    print(f'{filename}: {e}')
-                    continue
+                    try:
+                        val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
+                    except Exception as e:
+                        print(f'{filename}: {e}')
+                        continue
 
-                sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
+                    sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
 
-                sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
-                sigvis_err = np.sqrt(sigvis_err) * sigvis
+                    sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
+                    sigvis_err = np.sqrt(sigvis_err) * sigvis
 
-                lumi = pd.concat([sigvis, sigvis_err], axis=1)
-                lumi.columns = ['sigvis', 'sigvis_err']
+                    lumi = pd.concat([sigvis, sigvis_err], axis=1)
+                    lumi.columns = ['sigvis', 'sigvis_err']
 
-                fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
+                    fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
 
-                results = lumi.merge(fit_results, how='outer', on='bcid')
-                all_results = results if fn == 0 and l == 0 and f == 0 else pd.concat([all_results, results], ignore_index=True)
+                    results = lumi.merge(fit_results, how='outer', on='bcid')
+                    all_results = results if fn == 0 and l == 0 and f == 0 else pd.concat([all_results, results], ignore_index=True)
 
         all_results.to_csv('output/result.csv', index=False)
 
@@ -235,10 +260,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--luminometers', type=str, help='Luminometer name, separated by comma', required=True)
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
-    parser.add_argument('-bkg', '--background_correction', help='Apply bckground correction', action='store_true')
+    parser.add_argument('-c', '--corrections', type=str, help='Which corrections to apply (comma separated)', default='none')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {fits.fit_functions.keys()}', default='sg')
-    parser.add_argument('-c', '--clean', action='store_true', help='Make a clean output folder')
+    parser.add_argument('--clean', action='store_true', help='Make a clean output folder')
     parser.add_argument('files', nargs='*')
 
     main(parser.parse_args())
