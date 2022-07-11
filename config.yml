@@ -3,10 +3,11 @@
 # YAML technicality: floating point numbers need the dot before 'e'
 fit_parameter_limits:
   peak: [0, null]
-  capsigma: [1.e-2, 2]
+  capsigma: [1.e-3, 2]
   mean: [-1.e-2, 1.e-2]
   peak_ratio: [0, 1]
-  capsigma_ratio: [2, null]
+  capsigma_ratio: [0, null]
+  #capsigma_ratio: [1, null]
 
 # peak limit auto = nominal head-on rate
 fit_parameter_initial_values:

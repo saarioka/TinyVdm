@@ -77,15 +77,6 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
     return rate_and_beam.reset_index(drop=True)
 
 
-def normalise_beam_current(rate_and_beam, luminometers):
-    for luminometer in luminometers:
-        rate_and_beam[f'{luminometer}_normalised'] = rate_and_beam[luminometer] / rate_and_beam.beam
-        rate_and_beam[f'{luminometer}_normalised_err'] = rate_and_beam[f'{luminometer}_err'] / rate_and_beam.beam
-
-        # Add sensible error in case of 0 rate (max of error)
-        rate_and_beam[f'{luminometer}_normalised_err'].replace(0, rate_and_beam[f'{luminometer}_normalised_err'].max(axis=0), inplace=True)
-
-
 def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
     corrected_rate_and_beam = rate_and_beam.copy()
     corrected_rate_and_beam.correction = 'background'
@@ -117,9 +108,17 @@ def apply_beam_current_normalisation(rate_and_beam):
     # Mean over LS, multiply B1 * B2
     calib = rate_and_beam.groupby('plane')[['fbct_dcct_fraction_b1', 'fbct_dcct_fraction_b2']].transform('mean').prod(axis=1)
     rate_and_beam['beam_calibrated'] = rate_and_beam.beam / calib
-    for rates in filter(lambda x: '_normalised' in x, rate_and_beam.columns):
+    for rates in filter(lambda c: '_normalised' in c, rate_and_beam.columns):
         rate_and_beam[rates] *= calib
-        rate_and_beam[rates] *= calib
+
+
+def normalise_rates_current(rate_and_beam, luminometers):
+    for luminometer in luminometers:
+        rate_and_beam[f'{luminometer}_normalised'] = rate_and_beam[luminometer] / rate_and_beam.beam
+        rate_and_beam[f'{luminometer}_normalised_err'] = rate_and_beam[f'{luminometer}_err'] / rate_and_beam.beam
+
+        # Add sensible error in case of 0 rate (max of error)
+        rate_and_beam[f'{luminometer}_normalised_err'].replace(0, rate_and_beam[f'{luminometer}_normalised_err'].max(axis=0), inplace=True)
 
 
 def file_has_data(filename):
@@ -151,8 +150,9 @@ def make_fit(x, y, yerr, fit):
         if param in m.parameters:
             m.limits[param] = limit
 
-    m.migrad()  # Finds minimum of least_squares function
-    m.hesse()   # Accurately computes uncertainties
+    m.migrad(ncall=99999, iterate=100)  # Finds minimum of least_squares function
+    m.hesse()  # Uncertainties
+    #print(repr(m.fmin))
     return m
 
 
@@ -185,7 +185,7 @@ def main(args):
             bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
             rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
-        normalise_beam_current(rate_and_beam, luminometers)
+        normalise_rates_current(rate_and_beam, luminometers)
 
         if not args.no_fbct_dcct:
             apply_beam_current_normalisation(rate_and_beam)
@@ -248,10 +248,8 @@ def main(args):
                     lumi = pd.concat([sigvis, sigvis_err], axis=1)
                     lumi.columns = ['sigvis', 'sigvis_err']
 
-                    fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
-
                     results = lumi.merge(fit_results, how='outer', on='bcid')
-                    all_results = results if fn == 0 and l == 0 and f == 0 else pd.concat([all_results, results], ignore_index=True)
+                    all_results = results if fn == 0 and l == 0 and c == 0 and f == 0 else pd.concat([all_results, results], ignore_index=True)
 
         all_results.to_csv('output/result.csv', index=False)
 
