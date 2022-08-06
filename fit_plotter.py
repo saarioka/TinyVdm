@@ -69,7 +69,6 @@ class plotter():
         self.ax1.relim()
         self.ax1.autoscale()
         self.ax2.relim()
-        self.ax2.autoscale()
 
         self.pdf.savefig()
 
@@ -78,4 +77,8 @@ class plotter():
                 item[0].remove()
             else:
                 item.remove()
+
+    def close_pdf(self):
+        self.pdf.close()
+        plt.close(self.fig)
 

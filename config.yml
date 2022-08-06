@@ -1,3 +1,6 @@
+# Runtime
+max_threads: 'max' # number or 'max'
+
 # Fits
 
 # YAML technicality: floating point numbers need the dot before 'e'

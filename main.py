@@ -5,16 +5,24 @@ import yaml
 import shutil
 import os
 import tables
+import multiprocessing
+import traceback
 import pandas as pd
 import numpy as np
+from logging import debug, info, warning, error
+from functools import partial
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
 
 import fits
 import fit_plotter
+import utilities as utl
 
-CONFIG = 'config.yml'
+CONFIG_FILENAME = 'config.yml'
+with open(CONFIG_FILENAME, 'r') as cfg:
+    CONFIG = yaml.safe_load(cfg)
+
 
 def get_scan_info(filename):
     with tables.open_file(filename, 'r') as f:
@@ -123,7 +131,7 @@ def normalise_rates_current(rate_and_beam, luminometers):
 
 def file_has_data(filename):
     with tables.open_file(filename, mode='r') as f:
-        if not '/scan5_beam' in f or not '/vdmscan' in f:
+        if '/scan5_beam' not in f or '/vdmscan' not in f:
             return False
         if np.array(f.root.scan5_beam).size < 10:
             return False
@@ -133,10 +141,7 @@ def file_has_data(filename):
 
 
 def make_fit(x, y, yerr, fit):
-    with open(CONFIG, 'r') as cfg:
-        config = yaml.safe_load(cfg)
-
-    initial = config['fit_parameter_initial_values'][fit]
+    initial = CONFIG['fit_parameter_initial_values'][fit]
 
     if initial['peak'] == 'auto':
         initial['peak'] = np.max(y)
@@ -146,7 +151,7 @@ def make_fit(x, y, yerr, fit):
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **initial)
 
-    for param, limit in config['fit_parameter_limits'].items():
+    for param, limit in CONFIG['fit_parameter_limits'].items():
         if param in m.parameters:
             m.limits[param] = limit
 
@@ -156,102 +161,129 @@ def make_fit(x, y, yerr, fit):
     return m
 
 
+def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, correction, fit):
+    try:
+        if pdf:
+            plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{correction}_{fit}.pdf', fill, energy)
+
+        for p, plane in enumerate(rate_and_beam.plane.unique()):
+            for b, bcid in enumerate(rate_and_beam.bcid.unique()):
+                data = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid) & (rate_and_beam.correction == correction)]
+                x = scan[scan.nominal_sep_plane == plane]['sep']
+                y = data[f'{luminometer}_normalised']
+                yerr = data[f'{luminometer}_normalised_err']
+
+                m = make_fit(x, y, yerr, fit)
+
+                new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
+                new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
+
+                new['valid'] = m.valid
+                new['accurate'] = m.accurate
+                new.insert(0, 'bcid', bcid)
+                new.insert(0, 'plane', plane)
+                new.insert(0, 'fit', fit)
+                new.insert(0, 'correction', correction)
+                new.insert(0, 'luminometer', luminometer)
+                new.insert(0, 'filename', Path(filename).stem)
+
+                fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
+
+                if pdf:
+                    fit_info = [f'{utl.get_nice_name_for_luminometer(luminometer)}, {fit}',
+                                correction,
+                                f'{plane}, BCID {bcid}',
+                                fr'$\chi^2$ / $n_\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
+                    for param, v, e in zip(m.parameters, m.values, m.errors):
+                        fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
+                    fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
+                    fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
+                    fit_info = '\n'.join(fit_info)
+
+                    plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
+
+        if pdf:
+            plotter.close_pdf()
+
+        fit_results.capsigma *= 1e3  # to µm
+        fit_results.capsigma_err *= 1e3  # to µm
+
+        val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
+
+        sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
+
+        sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
+        sigvis_err = np.sqrt(sigvis_err) * sigvis
+
+        lumi = pd.concat([sigvis, sigvis_err], axis=1)
+        lumi.columns = ['sigvis', 'sigvis_err']
+
+        results = lumi.merge(fit_results, how='outer', on='bcid')
+        return results
+
+    except Exception as e:
+        traceback.print_exc()
+        return pd.DataFrame()
+
+
 def main(args):
+    utl.init_logger(args.verbosity)
+
     if args.clean and os.path.isdir('output'):
         shutil.rmtree('output')
 
     filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
 
     luminometers = args.luminometers.split(',')
+
     corrections = args.corrections.split(',')
     if 'none' not in corrections:
         corrections.insert(0, 'none')
+
     fitfunctions = args.fit.split(',')
 
-    for fn, filename in enumerate(filenames):
-        os.makedirs('output/data', exist_ok=True)
-        os.makedirs('output/fits', exist_ok=True)
+    os.makedirs('output/data', exist_ok=True)
+    os.makedirs('output/fits', exist_ok=True)
 
-        scan_info = get_basic_info(filename)
-        print(scan_info.to_string(index=False))
-        scan = get_scan_info(filename)
-        if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
-            print(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
-            continue
+    # Constant parameters are passed with partial and iterables as a list
+    # Running for all luminometers in parallel.
+    n_threads = min(len(luminometers) * len(corrections) * len(fitfunctions), CONFIG['max_threads'] if CONFIG['max_threads'].isdigit() else multiprocessing.cpu_count())
+    with multiprocessing.Pool(n_threads) as pool:
+        for fn, filename in enumerate(filenames):
+            try:
+                scan_info = get_basic_info(filename)
+                info('\n' + scan_info.to_string(index=False))
+                scan = get_scan_info(filename)
+                if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
+                    error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
+                    continue
 
-        rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
+                rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
 
-        if 'background' in corrections:
-            bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
-            rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
+                if 'background' in corrections:
+                    bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
+                    rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
-        normalise_rates_current(rate_and_beam, luminometers)
+                normalise_rates_current(rate_and_beam, luminometers)
 
-        if not args.no_fbct_dcct:
-            apply_beam_current_normalisation(rate_and_beam)
+                if not args.no_fbct_dcct:
+                    apply_beam_current_normalisation(rate_and_beam)
 
-        rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
+                rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
 
-        for l, luminometer in enumerate(luminometers):
-            for c, correction in enumerate(corrections):
-                for f, fit in enumerate(fitfunctions):
-                    if args.pdf:
-                        plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{correction}_{fit}.pdf', scan_info.fillnum[0], scan_info['energy'][0]*2/1000)
+                jobs = []
+                for l in luminometers:
+                    for c in corrections:
+                        for f in fitfunctions:
+                            jobs.append((l, c, f))
 
-                    for p, plane in enumerate(rate_and_beam.plane.unique()):
-                        for b, bcid in enumerate(rate_and_beam.bcid.unique()):
-                            data = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid) & (rate_and_beam.correction == correction)]
-                            x = scan[scan.nominal_sep_plane == plane]['sep']
-                            y = data[f'{luminometer}_normalised']
-                            yerr = data[f'{luminometer}_normalised_err']
+                result = pool.starmap(func=partial(analyse, rate_and_beam, scan, args.pdf, filename, scan_info.fillnum[0], scan_info['energy'][0]*2/1000), iterable=jobs)
 
-                            m = make_fit(x, y, yerr, fit)
-
-                            new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
-                            new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
-
-                            new['valid'] = m.valid
-                            new['accurate'] = m.accurate
-                            new.insert(0, 'bcid', bcid)
-                            new.insert(0, 'plane', plane)
-                            new.insert(0, 'fit', fit)
-                            new.insert(0, 'correction', correction)
-                            new.insert(0, 'luminometer', luminometer)
-                            new.insert(0, 'filename', Path(filename).stem)
-
-                            fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
-
-                            if args.pdf:
-                                fit_info = [f'{plane}, BCID {bcid}', f'$\\chi^2$ / $n_\\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
-                                for param, v, e in zip(m.parameters, m.values, m.errors):
-                                    fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
-                                fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
-                                fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
-                                fit_info = '\n'.join(fit_info)
-
-                                plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
-
-                    fit_results.capsigma *= 1e3 # to µm
-                    fit_results.capsigma_err *= 1e3 # to µm
-
-                    try:
-                        val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
-                    except Exception as e:
-                        print(f'{filename}: {e}')
-                        continue
-
-                    sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
-
-                    sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
-                    sigvis_err = np.sqrt(sigvis_err) * sigvis
-
-                    lumi = pd.concat([sigvis, sigvis_err], axis=1)
-                    lumi.columns = ['sigvis', 'sigvis_err']
-
-                    results = lumi.merge(fit_results, how='outer', on='bcid')
-                    all_results = results if fn == 0 and l == 0 and c == 0 and f == 0 else pd.concat([all_results, results], ignore_index=True)
-
-        all_results.to_csv('output/result.csv', index=False)
+            except Exception as e:
+                print(filename + ':')
+                traceback.print_exc()
+        result = pd.concat(result, ignore_index=True).reset_index(drop=True)
+        result.to_csv('output/result.csv', index=False)
 
 
 if __name__ == '__main__':
@@ -262,6 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {fits.fit_functions.keys()}', default='sg')
     parser.add_argument('--clean', action='store_true', help='Make a clean output folder')
+    parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 4 (from least to most verbose)', choices=[1,2,3,4], default=4)
     parser.add_argument('files', nargs='*')
 
     main(parser.parse_args())
