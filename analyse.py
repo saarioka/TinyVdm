@@ -9,6 +9,7 @@ import multiprocessing
 import traceback
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from logging import debug, info, warning, error
 from functools import partial
 from scipy import stats
@@ -242,8 +243,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         lumi = pd.concat([sigvis, sigvis_err], axis=1)
         lumi.columns = ['sigvis', 'sigvis_err']
 
-        results = lumi.merge(val, how='outer', on='bcid')
-        return results
+        return lumi.merge(val, how='outer', on='bcid')
 
     except Exception:
         traceback.print_exc()
@@ -266,8 +266,8 @@ def main(args):
 
     fitfunctions = args.fit.split(',')
 
-    os.makedirs('output/data', exist_ok=True)
-    os.makedirs('output/fits', exist_ok=True)
+    for folder in ('data', 'results', 'fits'):
+        os.makedirs(f'output/{folder}', exist_ok=True)
 
     # Constant parameters are passed with partial and iterables as a list
     # Running for all luminometers in parallel.
@@ -275,6 +275,8 @@ def main(args):
     with multiprocessing.Pool(n_threads) as pool:
         for fn, filename in enumerate(filenames):
             try:
+                rate_and_beam_filename = f'output/data/data_{Path(filename).stem}.csv'
+
                 scan_info = get_basic_info(filename)
                 info('\n' + scan_info.to_string(index=False))
                 scan = get_scan_info(filename)
@@ -282,18 +284,22 @@ def main(args):
                     error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
                     continue
 
-                rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
+                if Path(rate_and_beam_filename).is_file():
+                    rate_and_beam = pd.read_csv(rate_and_beam_filename)
+                    warning('Using cached data file')
+                else:
+                    rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
 
-                if 'background' in corrections:
-                    bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
-                    rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
+                    if 'background' in corrections:
+                        bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
+                        rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
-                normalise_rates_current(rate_and_beam, luminometers)
+                    normalise_rates_current(rate_and_beam, luminometers)
 
-                if not args.no_fbct_dcct:
-                    apply_beam_current_normalisation(rate_and_beam)
+                    if not args.no_fbct_dcct:
+                        apply_beam_current_normalisation(rate_and_beam)
 
-                rate_and_beam.to_csv(f'output/data/data_{Path(filename).stem}.csv', index=False)
+                    rate_and_beam.to_csv(rate_and_beam_filename, index=False)
 
                 jobs = []
                 for l in luminometers:
@@ -303,19 +309,22 @@ def main(args):
 
                 result = pool.starmap(func=partial(analyse, rate_and_beam, scan, args.pdf, filename, scan_info.fillnum[0], scan_info['energy'][0]*2/1000), iterable=jobs)
                 result = pd.concat(result, ignore_index=True).reset_index(drop=True)
+                result.to_csv(f'output/results/results_{Path(filename).stem}.csv')
+
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
 
-                # print stats
-                for plane in (1, 2):
-                    criteria = result.groupby(['correction', 'fit', 'bcid'])[[f'chi2_{plane}', f'capsigma_err_{plane}', f'peak_err_{plane}', f'mean_err_{plane}']].mean()
-                    criteria.reset_index(inplace=True)
-                    best_fits = criteria.loc[criteria.groupby(['bcid'])[f'capsigma_err_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
-                    print(f'\nLowest error in capsigma, plane {plane}:')
-                    print(best_fits.to_string(index=False))
+                if len(fitfunctions) > 1:
+                    # print stats
+                    for plane in (1, 2):
+                        criteria = result.groupby(['correction', 'fit', 'bcid'])[[f'chi2_{plane}', f'capsigma_err_{plane}', f'peak_err_{plane}', f'mean_err_{plane}']].mean()
+                        criteria.reset_index(inplace=True)
+                        best_fits = criteria.loc[criteria.groupby(['correction', 'bcid'])[f'capsigma_err_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
+                        print(f'\nLowest error in capsigma, plane {plane}:')
+                        print(best_fits.to_string(index=False))
 
-                    best_fits = criteria.loc[criteria.groupby(['bcid'])[f'chi2_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
-                    print(f'\nLowest chi2, plane {plane}:')
-                    print(best_fits.to_string(index=False))
+                        best_fits = criteria.loc[criteria.groupby(['correction', 'bcid'])[f'chi2_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
+                        print(f'\nLowest chi2, plane {plane}:')
+                        print(best_fits.to_string(index=False))
 
             except Exception:
                 print(filename + ':')

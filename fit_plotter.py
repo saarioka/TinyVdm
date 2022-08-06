@@ -14,8 +14,11 @@ plt.style.use(hep.style.CMS)
 
 def as_si(x, ndp=2):
     s = '{x:0.{ndp:d}e}'.format(x=x, ndp=ndp)
-    m, e = s.split('e')
-    return r'{m:s}\times 10^{{{e:d}}}'.format(m=m, e=int(e))
+    if 'e' in s:
+        m, e = s.split('e')
+        return r'{m:s}\times 10^{{{e:d}}}'.format(m=m, e=int(e))
+    else:
+        return str(x)
 
 
 class plotter():
