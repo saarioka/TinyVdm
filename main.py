@@ -19,6 +19,9 @@ import fits
 import fit_plotter
 import utilities as utl
 
+
+pd.set_option('precision', 4)
+
 CONFIG_FILENAME = 'config.yml'
 with open(CONFIG_FILENAME, 'r') as cfg:
     CONFIG = yaml.safe_load(cfg)
@@ -208,17 +211,34 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         fit_results.capsigma *= 1e3  # to µm
         fit_results.capsigma_err *= 1e3  # to µm
 
-        val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
+        #val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
+        val = fit_results.pivot(index='bcid', columns=['plane'])
 
         sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
 
         sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
         sigvis_err = np.sqrt(sigvis_err) * sigvis
 
+        plane_str_to_idx = {
+            'CROSSING': 1,
+            'SEPARATION': 2
+        }
+
+        val.columns = [f'{j}_{plane_str_to_idx[k]}' for j, k in val.columns] # pivottable -> table
+        val.reset_index(inplace=True)
+        only_single = [
+            'luminometer',
+            'fit',
+            'correction',
+            'filename'
+        ]
+        val.drop(columns=[s + '_2' for s in only_single], inplace=True)
+        val.rename(columns=dict(zip([s + '_1' for s in only_single], only_single)), inplace=True)
+
         lumi = pd.concat([sigvis, sigvis_err], axis=1)
         lumi.columns = ['sigvis', 'sigvis_err']
 
-        results = lumi.merge(fit_results, how='outer', on='bcid')
+        results = lumi.merge(val, how='outer', on='bcid')
         return results
 
     except Exception as e:
