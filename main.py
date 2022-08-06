@@ -211,7 +211,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         fit_results.capsigma *= 1e3  # to µm
         fit_results.capsigma_err *= 1e3  # to µm
 
-        #val = fit_results.pivot(index='bcid', columns=['plane'], values=['capsigma', 'peak', 'capsigma_err', 'peak_err'])
+        # Calculate sigvis
         val = fit_results.pivot(index='bcid', columns=['plane'])
 
         sigvis = np.pi * val.capsigma.prod(axis=1) * val.peak.sum(axis=1)
@@ -219,13 +219,16 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         sigvis_err = (val.capsigma_err**2 / val.capsigma**2).sum(axis=1) + (val.peak_err**2).sum(axis=1) / (val.peak).sum(axis=1)**2
         sigvis_err = np.sqrt(sigvis_err) * sigvis
 
-        plane_str_to_idx = {
-            'CROSSING': 1,
-            'SEPARATION': 2
-        }
+        # Combine sigvis and fit results to a shared file
+        plane_names = []
+        [plane_names.append(c[1]) for c in val.columns if c[1] not in plane_names]
+
+        plane_str_to_idx = dict(zip(plane_names, range(1, len(plane_names)+1)))
 
         val.columns = [f'{j}_{plane_str_to_idx[k]}' for j, k in val.columns] # pivottable -> table
         val.reset_index(inplace=True)
+
+        # These are samee for both planes
         only_single = [
             'luminometer',
             'fit',
@@ -314,7 +317,7 @@ if __name__ == '__main__':
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {fits.fit_functions.keys()}', default='sg')
     parser.add_argument('--clean', action='store_true', help='Make a clean output folder')
-    parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 4 (from least to most verbose)', choices=[1,2,3,4], default=4)
+    parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 5 (from least to most verbose)', choices=[1,2,3,4,5], default=4)
     parser.add_argument('files', nargs='*')
 
     main(parser.parse_args())

@@ -1,5 +1,5 @@
 # Runtime
-max_threads: 'max' # number or 'max'
+max_threads: 'max'  # int | 'max'
 
 # Fits
 
@@ -7,7 +7,7 @@ max_threads: 'max' # number or 'max'
 fit_parameter_limits:
   peak: [0, null]
   capsigma: [1.e-3, 2]
-  mean: [-1.e-2, 1.e-2]
+  mean: [-5.e-2, 5.e-2]
   peak_ratio: [0, 1]
   capsigma_ratio: [0, null]
   #capsigma_ratio: [1, null]
