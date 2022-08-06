@@ -38,10 +38,6 @@ class plotter():
         self.ax2.set_xlabel(r'$\Delta$ [mm]')
         self.ax2.minorticks_off()
 
-    def __del__(self):
-        self.pdf.close()
-        plt.close(self.fig)
-
     def create_page(self, x, y, yerr, fit, info, covariance=None, *argv):
         figure_items = []  # save handles here to be able to delete them without affecting template
         figure_items.append(self.ax1.errorbar(x, y, yerr, fmt='k.', linewidth=2, elinewidth=2, capsize=5, capthick=2)) # Plot the data points

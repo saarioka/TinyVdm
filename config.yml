@@ -22,7 +22,7 @@ fit_parameter_initial_values:
     peak: auto
     mean: 0
     capsigma: 0.4
-    constant: 0
+    const: 0
   dg:
     peak: auto
     mean: 0
@@ -57,7 +57,7 @@ fit_parameter_initial_values:
     capsigma: 0.4
     r2: 0
     r4: 0
-  polyG4onst:
+  polyG4Const:
     peak: auto
     mean: 0
     capsigma: 0.4

@@ -167,7 +167,7 @@ def make_fit(x, y, yerr, fit):
 def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, correction, fit):
     try:
         if pdf:
-            plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{luminometer}_{correction}_{fit}.pdf', fill, energy)
+            plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{utl.get_nice_name_for_luminometer(luminometer)}_{correction}_{fit}.pdf', fill, energy)
 
         for p, plane in enumerate(rate_and_beam.plane.unique()):
             for b, bcid in enumerate(rate_and_beam.bcid.unique()):
@@ -183,6 +183,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
 
                 new['valid'] = m.valid
                 new['accurate'] = m.accurate
+                new['chi2'] = m.fval / (len(x) - m.nfit)
                 new.insert(0, 'bcid', bcid)
                 new.insert(0, 'plane', plane)
                 new.insert(0, 'fit', fit)
@@ -244,7 +245,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         results = lumi.merge(val, how='outer', on='bcid')
         return results
 
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return pd.DataFrame()
 
@@ -301,12 +302,25 @@ def main(args):
                             jobs.append((l, c, f))
 
                 result = pool.starmap(func=partial(analyse, rate_and_beam, scan, args.pdf, filename, scan_info.fillnum[0], scan_info['energy'][0]*2/1000), iterable=jobs)
+                result = pd.concat(result, ignore_index=True).reset_index(drop=True)
+                result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
 
-            except Exception as e:
+                # print stats
+                for plane in (1, 2):
+                    criteria = result.groupby(['correction', 'fit', 'bcid'])[[f'chi2_{plane}', f'capsigma_err_{plane}', f'peak_err_{plane}', f'mean_err_{plane}']].mean()
+                    criteria.reset_index(inplace=True)
+                    best_fits = criteria.loc[criteria.groupby(['bcid'])[f'capsigma_err_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
+                    print(f'\nLowest error in capsigma, plane {plane}:')
+                    print(best_fits.to_string(index=False))
+
+                    best_fits = criteria.loc[criteria.groupby(['bcid'])[f'chi2_{plane}'].idxmin()][['correction', 'bcid', 'fit']]
+                    print(f'\nLowest chi2, plane {plane}:')
+                    print(best_fits.to_string(index=False))
+
+            except Exception:
                 print(filename + ':')
                 traceback.print_exc()
-        result = pd.concat(result, ignore_index=True).reset_index(drop=True)
-        result.to_csv('output/result.csv', index=False)
+        result_all.to_csv('output/result.csv', index=False)
 
 
 if __name__ == '__main__':

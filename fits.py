@@ -66,7 +66,7 @@ fit_functions = {
     'polyG6':      polyg6,
     'polyG6Const': polyg6const,
     'polyG4':      polyg4,
-    'polyG4onst':  polyg4const,
+    'polyG4Const': polyg4const,
     'polyG2':      polyg2,
     'polyG2Const': polyg2const,
     'superG':      superg,
