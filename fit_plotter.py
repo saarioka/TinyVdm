@@ -89,19 +89,18 @@ class plotter():
         if not self.handles:
             self.handles = {'errorbars': {}, 'lines': {}}
 
-            # Plot the data points
             self.handles['errorbars']['datapoints'] = self.ax1.errorbar(x, y, yerr, fmt='.', color=COLOR1, linewidth=2, elinewidth=2, capsize=5, capthick=2)
-            self.handles['errorbars']['datapoints_log'] = self.ax1_log.errorbar(x, y, yerr, fmt='.', color=COLOR2, linewidth=2, elinewidth=2, capsize=5, capthick=2)
-
-            # Plot the fit result
             self.handles['lines']['fit'] = self.ax1.plot(x_dense, fits.fit_functions[fit](x_dense, *argv), color=COLOR1)
-            self.handles['lines']['fit_log'] = self.ax1_log.plot(x_dense, fits.fit_functions[fit](x_dense, *argv), color=COLOR2)
+
+            if CONFIG['plotting']['log_plot']:
+                self.handles['errorbars']['datapoints_log'] = self.ax1_log.errorbar(x, y, yerr, fmt='.', color=COLOR2, linewidth=2, elinewidth=2, capsize=5, capthick=2)
+                self.handles['lines']['fit_log'] = self.ax1_log.plot(x_dense, fits.fit_functions[fit](x_dense, *argv), color=COLOR2)
 
             # Plot the residuals
             self.handles['residuals'] = self.ax2.errorbar(x, residuals, 1, fmt='k.', linewidth=2, elinewidth=2, capsize=5, capthick=2)
 
 
-        if CONFIG['plotting']['display_fit_uncertainty'] and covariance is not None:
+        if CONFIG['plotting']['fit_uncertainty'] and covariance is not None:
             yy, ycov = propagate(lambda p: fits.fit_functions[fit](x_dense, *p), argv, covariance)
             yerr_prop = np.diag(ycov) ** 0.5
             figure_items.append(self.ax1.fill_between(x_dense, yy - yerr_prop, yy + yerr_prop, facecolor=COLOR1, alpha=0.3))
@@ -117,8 +116,11 @@ class plotter():
 
         self.ax1.relim()
         self.ax1.autoscale()
-        self.ax1_log.relim()
-        self.ax1_log.autoscale()
+
+        if CONFIG['plotting']['log_plot']:
+            self.ax1_log.relim()
+            self.ax1_log.autoscale()
+
         self.ax2.relim()
 
         self.pdf.savefig()

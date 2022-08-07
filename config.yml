@@ -2,8 +2,8 @@ runtime:
   max_threads: 'max'  # int | 'max'
 
 plotting:
-  display_fit_uncertainty: False  # slow
-
+  fit_uncertainty: False  # A bit slow
+  log_plot: True
 
 # Fits
 
