@@ -1,5 +1,9 @@
-# Runtime
-max_threads: 'max'  # int | 'max'
+runtime:
+  max_threads: 'max'  # int | 'max'
+
+plotting:
+  display_fit_uncertainty: False  # slow
+
 
 # Fits
 
@@ -7,7 +11,7 @@ max_threads: 'max'  # int | 'max'
 fit_parameter_limits:
   peak: [0, null]
   capsigma: [1.e-3, 2]
-  mean: [-5.e-2, 5.e-2]
+  mean: [-1.e-2, 1.e-2]
   peak_ratio: [0, 1]
   capsigma_ratio: [0, null]
   #capsigma_ratio: [1, null]

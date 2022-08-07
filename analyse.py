@@ -271,7 +271,7 @@ def main(args):
 
     # Constant parameters are passed with partial and iterables as a list
     # Running for all luminometers in parallel.
-    n_threads = min(len(luminometers) * len(corrections) * len(fitfunctions), CONFIG['max_threads'] if CONFIG['max_threads'].isdigit() else multiprocessing.cpu_count())
+    n_threads = min(len(luminometers) * len(corrections) * len(fitfunctions), CONFIG['runtime']['max_threads'] if CONFIG['runtime']['max_threads'].isdigit() else multiprocessing.cpu_count())
     with multiprocessing.Pool(n_threads) as pool:
         for fn, filename in enumerate(filenames):
             try:
