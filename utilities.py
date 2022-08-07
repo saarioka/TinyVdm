@@ -1,7 +1,7 @@
 import logging
 
 
-def get_nice_name_for_luminometer(luminometer):
+def get_nice_name_for_luminometer(luminometer) -> str:
     rate_table_to_lumi = {
         'pltlumizero': 'PLT',
         'bcm1flumi': 'BCM1F',
@@ -14,7 +14,11 @@ def get_nice_name_for_luminometer(luminometer):
     return rate_table_to_lumi[luminometer] if luminometer in rate_table_to_lumi.keys() else luminometer.upper()
 
 
-def init_logger(level: int):
+def init_logger(level: int) -> None:
+    if level == 5:
+        # This module gives a bit too verbose DEBUG output (it supports logging module)
+        logging.getLogger("matplotlib").setLevel(logging.INFO)
+
     level_str_to_int = {
         1: logging.CRITICAL,
         2: logging.ERROR,

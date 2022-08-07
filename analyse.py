@@ -20,7 +20,6 @@ import fits
 import fit_plotter
 import utilities as utl
 
-
 pd.set_option('precision', 4)
 
 CONFIG_FILENAME = 'config.yml'
@@ -60,7 +59,6 @@ def get_basic_info(filename):
 def get_beam_current_and_rates(filename,  scan, luminometers):
     with tables.open_file(filename, 'r') as f:
         collidable = np.nonzero(f.root.scan5_beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
-        filled = np.nonzero(np.logical_or(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
 
         for index, row in scan.iterrows():
             period_of_scanpoint = f'(timestampsec > {row.min_time}) & (timestampsec <= {row.max_time})'
@@ -77,7 +75,7 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
                 new_data[luminometer] = r.mean(axis=0)
                 new_data[f'{luminometer}_err'] = stats.sem(r, axis=0)
 
-            new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled)
+            new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint)
 
             new_data.insert(0, 'correction', 'none')
             new_data.insert(0, 'bcid', collidable + 1) # Move to 1-indexed values of BCID
@@ -109,7 +107,8 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
     return corrected_rate_and_beam
 
 
-def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint, filled):
+def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint):
+    filled = np.nonzero(np.logical_or(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
     fbct_b1 = np.array([b['bxintensity1'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
     fbct_b2 = np.array([b['bxintensity2'][filled] for b in f.root['scan5_beam'].where(period_of_scanpoint)])
     dcct = np.array([[b['intensity1'], b['intensity2']] for b in f.root['scan5_beam'].where(period_of_scanpoint)]) # Normalised beam current
@@ -145,7 +144,7 @@ def file_has_data(filename):
 
 
 def make_fit(x, y, yerr, fit):
-    initial = CONFIG['fit_parameter_initial_values'][fit]
+    initial = CONFIG['fitting']['parameter_initial_values'][fit]
 
     if initial['peak'] == 'auto':
         initial['peak'] = np.max(y)
@@ -155,13 +154,12 @@ def make_fit(x, y, yerr, fit):
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **initial)
 
-    for param, limit in CONFIG['fit_parameter_limits'].items():
+    for param, limit in CONFIG['fitting']['parameter_limits'].items():
         if param in m.parameters:
             m.limits[param] = limit
 
     m.migrad(ncall=99999, iterate=100)  # Finds minimum of least_squares function
     m.hesse()  # Uncertainties
-    #print(repr(m.fmin))
     return m
 
 
@@ -177,7 +175,24 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 y = data[f'{luminometer}_normalised']
                 yerr = data[f'{luminometer}_normalised_err']
 
-                m = make_fit(x, y, yerr, fit)
+                if fit == 'polyG':
+                    for used_fit, highest_order_param in [('polyG6', 'r6'), ('polyG4', 'r4'), ('polyG2', 'r2'), ('sg', None)]:
+                        m = make_fit(x, y, yerr, used_fit)
+                        chi2 = m.fval / (len(x) - m.nfit)
+                        if used_fit == 'sg':
+                            break
+                        if np.abs(m.values[highest_order_param]) > CONFIG['fitting']['adaptive']['parameters_significance_threshold'] \
+                            and chi2 < float(CONFIG['fitting']['adaptive']['chi2_threshold']) \
+                            and ((m.valid and CONFIG['fitting']['adaptive']['require_valid']) or not CONFIG['fitting']['adaptive']['require_valid']) \
+                            and ((m.accurate and CONFIG['fitting']['adaptive']['require_accurate']) or not CONFIG['fitting']['adaptive']['require_accurate']):
+                            break
+                        debug('Plane %s, BCID %d, fit %s: highest order parameter %.2e, chi2 %.2e, valid %d, accurate %d',
+                              plane, bcid, used_fit, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
+
+                    debug('Plane %s, BCID %d: using fit %s', plane, bcid, used_fit)
+                else:
+                    m = make_fit(x, y, yerr, fit)
+                    used_fit = fit
 
                 new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
                 new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
@@ -195,7 +210,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
 
                 if pdf:
-                    fit_info = [f'{utl.get_nice_name_for_luminometer(luminometer)}, {fit}',
+                    fit_info = [f'{utl.get_nice_name_for_luminometer(luminometer)}, {used_fit}',
                                 correction,
                                 f'{plane}, BCID {bcid}',
                                 fr'$\chi^2$ / $n_\mathrm{{dof}}$ = {m.fval:.1f} / {len(x) - m.nfit}']
@@ -205,7 +220,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                     fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
                     fit_info = '\n'.join(fit_info)
 
-                    plotter.create_page(x, y, yerr, fit, fit_info, m.covariance, *m.values)
+                    plotter.create_page(x, y, yerr, used_fit, fit_info, m.covariance, *m.values)
 
         if pdf:
             plotter.close_pdf()
@@ -231,12 +246,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         val.reset_index(inplace=True)
 
         # These are samee for both planes
-        only_single = [
-            'luminometer',
-            'fit',
-            'correction',
-            'filename'
-        ]
+        only_single = ['luminometer', 'fit', 'correction', 'filename']
         val.drop(columns=[s + '_2' for s in only_single], inplace=True)
         val.rename(columns=dict(zip([s + '_1' for s in only_single], only_single)), inplace=True)
 
@@ -253,7 +263,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
 def main(args):
     utl.init_logger(args.verbosity)
 
-    if args.clean and os.path.isdir('output'):
+    if not args.allow_cache and os.path.isdir('output'):
         shutil.rmtree('output')
 
     filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
@@ -278,7 +288,7 @@ def main(args):
                 rate_and_beam_filename = f'output/data/data_{Path(filename).stem}.csv'
 
                 scan_info = get_basic_info(filename)
-                info('\n' + scan_info.to_string(index=False))
+                print(scan_info.to_string(index=False))
                 scan = get_scan_info(filename)
                 if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
                     error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
@@ -338,8 +348,8 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-c', '--corrections', type=str, help='Which corrections to apply (comma separated)', default='none')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma. Choices: {fits.fit_functions.keys()}', default='sg')
-    parser.add_argument('--clean', action='store_true', help='Make a clean output folder')
+    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('polyG'), default='sg')
+    parser.add_argument('-ac', '--allow_cache', action='store_true', help='Allow the use of cached data values (make sure to use the same arguments as before)')
     parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 5 (from least to most verbose)', choices=[1,2,3,4,5], default=4)
     parser.add_argument('files', nargs='*')
 

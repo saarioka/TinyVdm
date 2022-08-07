@@ -6,87 +6,96 @@ plotting:
   log_plot: True
 
 # Fits
+fitting:
+  adaptive:
+    #parameters_significance_threshold: 1.0e-6
+    parameters_significance_threshold: 0
+    chi2_threshold: 1.0e9
+    require_valid: True
+    require_accurate: False
 
-# YAML technicality: floating point numbers need the dot before 'e'
-fit_parameter_limits:
-  peak: [0, null]
-  capsigma: [1.e-3, 2]
-  mean: [-1.e-2, 1.e-2]
-  peak_ratio: [0, 1]
-  capsigma_ratio: [0, null]
-  #capsigma_ratio: [1, null]
+  # YAML technicality: floating point numbers need the dot before 'e'
+  parameter_limits:
+    peak: [0, 1]
+    capsigma: [1.e-3, 1]
+    mean: [-1.e-2, 1.e-2]
+    peak_ratio: [0, 1]
+    capsigma_ratio: [0, null]
+    r2: [-0.15, 0.15]
+    r4: [-0.15, 0.15]
+    r6: [-0.2, 0.2]
 
-# peak limit auto = nominal head-on rate
-fit_parameter_initial_values:
-  sg:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-  sgConst:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    const: 0
-  dg:
-    peak: auto
-    mean: 0
-    capsigma: 0.2
-    peak_ratio: 0.5
-    capsigma_ratio: 2
-  dgConst:
-    peak: auto
-    mean: 0
-    capsigma: 0.2
-    peak_ratio: 0.5
-    capsigma_ratio: 2
-    const: 0
-  polyG6:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-    r4: 0
-    r6: 0
-  polyG6Const:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-    r4: 0
-    r6: 0
-    const: 0
-  polyG4:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-    r4: 0
-  polyG4Const:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-    r4: 0
-    const: 0
-  polyG2:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-  polyG2Const:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    r2: 0
-    const: 0
-  superG:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    p: 1
-  superGConst:
-    peak: auto
-    mean: 0
-    capsigma: 0.4
-    p: 1
-    const: 0
+  # peak limit auto = nominal head-on rate
+  parameter_initial_values:
+    sg:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+    sgConst:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      const: 0
+    dg:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      peak_ratio: 0.5
+      capsigma_ratio: 2
+    dgConst:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      peak_ratio: 0.5
+      capsigma_ratio: 2
+      const: 0
+    polyG6:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+      r4: 0
+      r6: 0
+    polyG6Const:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+      r4: 0
+      r6: 0
+      const: 0
+    polyG4:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+      r4: 0
+    polyG4Const:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+      r4: 0
+      const: 0
+    polyG2:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+    polyG2Const:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      r2: 0
+      const: 0
+    superG:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      p: 1
+    superGConst:
+      peak: auto
+      mean: 0
+      capsigma: 0.2
+      p: 1
+      const: 0
