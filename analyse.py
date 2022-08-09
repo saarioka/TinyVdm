@@ -1,17 +1,16 @@
-from pathlib import Path
 import argparse
-
-import yaml
 import shutil
 import os
-import tables
 import multiprocessing
 import traceback
+from pathlib import Path
+from functools import partial
+
+import yaml
+import tables
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 from logging import debug, info, warning, error
-from functools import partial
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
@@ -58,7 +57,7 @@ def get_basic_info(filename):
 
 def get_beam_current_and_rates(filename,  scan, luminometers):
     with tables.open_file(filename, 'r') as f:
-        collidable = np.nonzero(f.root.scan5_beam[0]['collidable'])[0] # indices of colliding bunches (0-indexed)
+        collidable = np.nonzero(f.root.scan5_beam[0]['collidable'])[0]  # indices of colliding bunches (0-indexed)
 
         for index, row in scan.iterrows():
             period_of_scanpoint = f'(timestampsec > {row.min_time}) & (timestampsec <= {row.max_time})'
@@ -101,7 +100,7 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
             rate_ag = rate_ag[rate_ag >= 0]
             bkg = 2 * rate_nc.mean() - rate_ag.mean()
             bkg_err = np.sqrt(4*stats.sem(rate_nc)**2 + stats.sem(rate_ag)**2)
-            debug(f'background for {luminometer}: {bkg} +- {bkg_err}')
+            info(f'background for {luminometer}:\t{bkg:.2e} +- {bkg_err:.2e} (RNC {rate_nc.mean():.2e}, RAG {rate_ag.mean():.2e})')
 
             rate_and_beam[f'bkg_{luminometer}'] = bkg
             rate_and_beam[f'bkg_{luminometer}_err'] = bkg_err
@@ -167,10 +166,9 @@ def make_fit(x, y, yerr, fit):
 
 
 def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, correction, fit):
+    if pdf:
+        plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{utl.get_nice_name_for_luminometer(luminometer)}_{correction}_{fit}.pdf', fill, energy)
     try:
-        if pdf:
-            plotter = fit_plotter.plotter(f'output/fits/fit_{Path(filename).stem}_{utl.get_nice_name_for_luminometer(luminometer)}_{correction}_{fit}.pdf', fill, energy)
-
         for p, plane in enumerate(rate_and_beam.plane.unique()):
             for b, bcid in enumerate(rate_and_beam.bcid.unique()):
                 data = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid) & (rate_and_beam.correction == correction)]
@@ -221,7 +219,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                     for param, v, e in zip(m.parameters, m.values, m.errors):
                         fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
                     fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
-                    fit_info = [info.replace('capsigma', '$\Sigma$') for info in fit_info]
+                    fit_info = [info.replace('capsigma', r'$\Sigma$') for info in fit_info]
                     fit_info = '\n'.join(fit_info)
 
                     plotter.create_page(x, y, yerr, used_fit, fit_info, m.covariance, *m.values)
@@ -270,7 +268,7 @@ def main(args):
     if not args.allow_cache and os.path.isdir('output'):
         shutil.rmtree('output')
 
-    filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
+    filenames = sorted(list(filter(file_has_data, args.files)))
     luminometers = args.luminometers.split(',')
     corrections = args.corrections.split(',')
     fitfunctions = args.fit.split(',')
@@ -347,10 +345,9 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-c', '--corrections', type=str, help='Which corrections to apply (comma separated)', default='none')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('adaptive'), default='sg')
+    parser.add_argument('-fit', type=str, help='Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('adaptive'), default='sg')
     parser.add_argument('-ac', '--allow_cache', action='store_true', help='Allow the use of cached data values (make sure to use the same arguments as before)')
     parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 5 (from least to most verbose)', choices=[1,2,3,4,5], default=4)
     parser.add_argument('files', nargs='*')
 
     main(parser.parse_args())
-
