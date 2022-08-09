@@ -1,3 +1,6 @@
+"""
+Call this with 'python plot_default_fits.py' to see what are the default parameters for all fits
+"""
 import yaml
 import matplotlib.pyplot as plt
 import numpy as np

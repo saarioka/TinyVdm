@@ -1,10 +1,13 @@
+"""
+Call this with 'python result_viewer.py' to launch an interactive plotting tool
+"""
 from pathlib import Path
 import pandas as pd
 from pandasgui import show
 from glob import glob
 
 def main():
-    result_filename = 'output/results.csv'
+    result_filename = 'output/result.csv'
     if Path(result_filename).is_file():
         data = pd.read_csv(result_filename)
         print(f'Read {result_filename}')

@@ -1,3 +1,8 @@
+"""
+Make fit pdfs.
+Re-uses figure templates from previous BCIDs and just changes y-data (for speedup)
+"""
+
 import yaml
 import numpy as np
 import mplhep as hep
@@ -84,7 +89,6 @@ class plotter():
                 tops.set_ydata(residuals + 1)
                 barsy, = verts
                 barsy.set_segments([np.array([[x, yt], [x, yb]]) for x, yt, yb in zip(x, residuals + 1, residuals - 1)])
-
 
         if not self.handles:
             self.handles = {'errorbars': {}, 'lines': {}}

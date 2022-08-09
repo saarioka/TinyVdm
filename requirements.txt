@@ -8,3 +8,4 @@ tables
 scipy
 jacobi
 yaml
+pandasgui
