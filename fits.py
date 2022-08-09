@@ -11,8 +11,6 @@ def sg(x, peak, mean, capsigma):
 
 
 def dgconst(x, peak, mean, capsigma, peak_ratio, capsigma_ratio, const):
-    #sigma = capsigma * capsigma_ratio / (peak_ratio*capsigma_ratio + 1 - peak_ratio)
-    #peak = capsigma / (peak_ratio*capsigma_ratio + 1 - peak_ratio)
     c = capsigma / (peak_ratio*capsigma_ratio + 1 - peak_ratio)
     return const + sg(x, peak_ratio*peak, mean, capsigma_ratio*c) + sg(x, (1-peak_ratio)*peak, mean, c)
 

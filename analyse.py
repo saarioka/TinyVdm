@@ -97,8 +97,11 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
 
             rate_nc = np.array([r['bxraw'][filled_noncolliding] for r in f.root[luminometer]])
             rate_ag = np.array([r['bxraw'][abort_gap_mask] for r in f.root[luminometer]])
+            rate_nc = rate_nc[rate_nc >= 0]
+            rate_ag = rate_ag[rate_ag >= 0]
             bkg = 2 * rate_nc.mean() - rate_ag.mean()
-            bkg_err = np.sqrt(4*stats.sem(rate_nc.flatten())**2 + stats.sem(rate_ag.flatten())**2)
+            bkg_err = np.sqrt(4*stats.sem(rate_nc)**2 + stats.sem(rate_ag)**2)
+            debug(f'background for {luminometer}: {bkg} +- {bkg_err}')
 
             rate_and_beam[f'bkg_{luminometer}'] = bkg
             rate_and_beam[f'bkg_{luminometer}_err'] = bkg_err
@@ -175,18 +178,19 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 y = data[f'{luminometer}_normalised']
                 yerr = data[f'{luminometer}_normalised_err']
 
-                if fit == 'polyG':
-                    for used_fit, highest_order_param in [('polyG6', 'r6'), ('polyG4', 'r4'), ('polyG2', 'r2'), ('sg', None)]:
+                if fit == 'adaptive':
+                    for used_fit, highest_order_param in [('dg', 'peak_ratio'), ('polyG6', 'r6'), ('polyG4', 'r4'), ('polyG2', 'r2'), ('sg', None)]:
                         m = make_fit(x, y, yerr, used_fit)
                         chi2 = m.fval / (len(x) - m.nfit)
                         if used_fit == 'sg':
                             break
-                        if np.abs(m.values[highest_order_param]) > CONFIG['fitting']['adaptive']['parameters_significance_threshold'] \
+                        limits = CONFIG['fitting']['adaptive']['parameters_significance_threshold'][highest_order_param]
+                        if limits[0] < np.abs(m.values[highest_order_param]) < limits[1] \
                             and chi2 < float(CONFIG['fitting']['adaptive']['chi2_threshold']) \
                             and ((m.valid and CONFIG['fitting']['adaptive']['require_valid']) or not CONFIG['fitting']['adaptive']['require_valid']) \
                             and ((m.accurate and CONFIG['fitting']['adaptive']['require_accurate']) or not CONFIG['fitting']['adaptive']['require_accurate']):
                             break
-                        debug('Plane %s, BCID %d, fit %s: highest order parameter %.2e, chi2 %.2e, valid %d, accurate %d',
+                        debug('Plane %s, BCID %d, fit %s: parameter of merit %.2e, chi2 %.2e, valid %d, accurate %d',
                               plane, bcid, used_fit, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
 
                     debug('Plane %s, BCID %d: using fit %s', plane, bcid, used_fit)
@@ -267,13 +271,8 @@ def main(args):
         shutil.rmtree('output')
 
     filenames = sorted(list(filter(lambda x: file_has_data(x), args.files)))
-
     luminometers = args.luminometers.split(',')
-
     corrections = args.corrections.split(',')
-    if 'none' not in corrections:
-        corrections.insert(0, 'none')
-
     fitfunctions = args.fit.split(',')
 
     for folder in ('data', 'results', 'fits'):
@@ -348,7 +347,7 @@ if __name__ == '__main__':
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-c', '--corrections', type=str, help='Which corrections to apply (comma separated)', default='none')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
-    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('polyG'), default='sg')
+    parser.add_argument('-fit', type=str, help=f'Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('adaptive'), default='sg')
     parser.add_argument('-ac', '--allow_cache', action='store_true', help='Allow the use of cached data values (make sure to use the same arguments as before)')
     parser.add_argument('--verbosity', '-v', type=int, help='Verbosity level of printouts. Give a value between 1 and 5 (from least to most verbose)', choices=[1,2,3,4,5], default=4)
     parser.add_argument('files', nargs='*')
