@@ -67,7 +67,7 @@ class plotter():
 
         x_dense = np.linspace(np.min(x), np.max(x))
 
-        residuals = (y.to_numpy() - fits.fit_functions[fit](x, *argv).to_numpy()) / yerr.to_numpy()
+        residuals = (y - fits.fit_functions[fit](x, *argv)) / yerr
 
         # https://stackoverflow.com/questions/15887820/animation-by-using-matplotlib-errorbar
         # https://stackoverflow.com/questions/25210723/matplotlib-set-data-for-errorbar-plot

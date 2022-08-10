@@ -37,7 +37,7 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
             bkg = 2 * rate_nc.mean() - rate_ag.mean()
             bkg_err = np.sqrt(4*stats.sem(rate_nc)**2 + stats.sem(rate_ag)**2)
 
-            info(f'background for {luminometer:<16}\t{bkg:.2e} +- {bkg_err:.2e} (RNC {rate_nc.mean():.2e}, RAG {rate_ag.mean():.2e})')
+            print(f'Background for {luminometer: <20} {bkg:.2e} +- {bkg_err:.2e} (RNC {rate_nc.mean():.2e}, RAG {rate_ag.mean():.2e})')
 
             rate_and_beam[f'bkg_{luminometer}'] = bkg
             rate_and_beam[f'bkg_{luminometer}_err'] = bkg_err
@@ -62,7 +62,7 @@ def apply_beam_current_normalisation(rate_and_beam):
         rate_and_beam[rates] *= calib
 
 
-def normalise_rates_current(rate_and_beam, luminometers):
+def apply_rate_normalisation(rate_and_beam, luminometers):
     for luminometer in luminometers:
         rate_and_beam[f'{luminometer}_normalised'] = rate_and_beam[luminometer] / rate_and_beam.beam
         rate_and_beam[f'{luminometer}_normalised_err'] = rate_and_beam[f'{luminometer}_err'] / rate_and_beam.beam

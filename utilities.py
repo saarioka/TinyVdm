@@ -27,8 +27,9 @@ def get_nice_name_for_luminometer(luminometer) -> str:
 
 def init_logger(level: int) -> None:
     if level == 5:
-        # This module gives a bit too verbose DEBUG output (it supports logging module)
-        logging.getLogger("matplotlib").setLevel(logging.INFO)
+        # These modules give a bit too verbose DEBUG output (they support logging module)
+        for package in ('matplotlib', 'numba'):
+            logging.getLogger(package).setLevel(logging.INFO)
 
     level_str_to_int = {
         1: logging.CRITICAL,

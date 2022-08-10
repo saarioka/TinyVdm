@@ -25,7 +25,7 @@ import utilities as utl
 from corrections import get_bkg_from_noncolliding, \
     get_fbct_to_dcct_correction_factors, \
     apply_beam_current_normalisation, \
-    normalise_rates_current
+    apply_rate_normalisation
 
 pd.set_option('precision', 3)
 
@@ -41,7 +41,7 @@ def get_basic_info(filename):
         scan_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames)
         scan_info['time'] = pd.to_datetime(scan_info['timestampsec'], unit='s').dt.strftime('%d.%m.%Y, %H:%M:%S')
         #scan_info['ip'] = scan_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
-        scan_info['energy'] = f.root.scan5_beam[0]['egev']
+        scan_info['energy'] = float("%.3g" % f.root.scan5_beam[0]['egev'])
     return scan_info[['time', 'fillnum', 'runnum', 'energy', 'ip', 'bstar5', 'xingHmurad']]
 
 
@@ -50,7 +50,6 @@ def get_scan_info(filename):
     with tables.open_file(filename, 'r') as f:
         quality_condition = '(stat == "ACQUIRING") & (nominal_sep_plane != "NONE")'
         scan = pd.DataFrame()
-        #scan['timestampsec'] = [r['timestampsec'] for r in f.root.vdmscan.where(quality_condition)]
         scan['timestampsec'] = utl.from_h5(f, 'vdmscan', 'timestampsec', quality_condition)
         scan['sep'] = utl.from_h5(f, 'vdmscan', 'sep', quality_condition)
 
@@ -107,12 +106,12 @@ def file_has_data(filename):
 
 
 def make_fit(x, y, yerr, fit):
+    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit])  # Initialise minimiser with data and fit function of choice
+
     initial = CONFIG['fitting']['parameter_initial_values'][fit]
 
     if initial['peak'] == 'auto':
         initial['peak'] = np.max(y)
-
-    least_squares = LeastSquares(x, y, yerr, fits.fit_functions[fit])  # Initialise minimiser with data and fit function of choice
 
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **initial)
@@ -134,9 +133,9 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         for p, plane in enumerate(rate_and_beam.plane.unique()):
             for b, bcid in enumerate(rate_and_beam.bcid.unique()):
                 data = rate_and_beam[(rate_and_beam.plane == plane) & (rate_and_beam.bcid == bcid) & (rate_and_beam.correction == correction)]
-                x = scan[scan.nominal_sep_plane == plane]['sep']
-                y = data[f'{luminometer}_normalised']
-                yerr = data[f'{luminometer}_normalised_err']
+                x = scan[scan.nominal_sep_plane == plane]['sep'].to_numpy()
+                y = data[f'{luminometer}_normalised'].to_numpy()
+                yerr = data[f'{luminometer}_normalised_err'].to_numpy()
 
                 if fit == 'adaptive':
                     for used_fit, highest_order_param in [('dg', 'peak_ratio'), ('polyG6', 'r6'), ('polyG4', 'r4'), ('polyG2', 'r2'), ('sg', None)]:
@@ -150,7 +149,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                             and ((m.valid and CONFIG['fitting']['adaptive']['require_valid']) or not CONFIG['fitting']['adaptive']['require_valid']) \
                             and ((m.accurate and CONFIG['fitting']['adaptive']['require_accurate']) or not CONFIG['fitting']['adaptive']['require_accurate']):
                             break
-                        debug('Plane %s, BCID %d, fit %s: parameter of merit %.2e, chi2 %.2e, valid %d, accurate %d',
+                        debug('Plane %s, BCID %d, fit %s: parameter of merit ({highest_order_param}) %.2e, chi2 %.2e, valid %d, accurate %d',
                               plane, bcid, used_fit, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
 
                     debug('Plane %s, BCID %d: using fit %s', plane, bcid, used_fit)
@@ -268,7 +267,7 @@ def main(args) -> None:
                         bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
                         rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
-                    normalise_rates_current(rate_and_beam, luminometers)
+                    apply_rate_normalisation(rate_and_beam, luminometers)
 
                     if not args.no_fbct_dcct:
                         apply_beam_current_normalisation(rate_and_beam)
@@ -288,6 +287,13 @@ def main(args) -> None:
                 result.to_csv(f'output/results/results_{Path(filename).stem}.csv', float_format="%.3e")
 
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
+
+                summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
+                # This most likely will not fit into the terminal, but pandas cuts the rows from the middle, causing the things in the beginning and end to be shown
+                # (cutting out mean which is probably not the most relevant)
+                print(summary[['sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2',
+                      'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
+
                 debug('Time elapsed: %.1fs (results ready)', time.perf_counter() - START_TIME)
 
             except Exception:
@@ -300,8 +306,6 @@ def main(args) -> None:
             error('No result files created')
             return
 
-        # This most likely will not fit into the terminal, but pandas cuts the rows from the middle, causing the things in the beginning and end to be shown
-        # (cutting out mean which is probably not the most relevant)
         print(summary[['sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2',
                       'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
         summary.reset_index(inplace=True)
