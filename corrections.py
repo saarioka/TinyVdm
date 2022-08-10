@@ -37,7 +37,7 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
             bkg = 2 * rate_nc.mean() - rate_ag.mean()
             bkg_err = np.sqrt(4*stats.sem(rate_nc)**2 + stats.sem(rate_ag)**2)
 
-            print(f'Background for {luminometer: <20} {bkg:.2e} +- {bkg_err:.2e} (RNC {rate_nc.mean():.2e}, RAG {rate_ag.mean():.2e})')
+            print(f'Background for {utl.get_nice_name_for_luminometer(luminometer): <10} {bkg:.2e} +- {bkg_err:.2e} (RNC {rate_nc.mean():.2e}, RAG {rate_ag.mean():.2e})')
 
             rate_and_beam[f'bkg_{luminometer}'] = bkg
             rate_and_beam[f'bkg_{luminometer}_err'] = bkg_err

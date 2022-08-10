@@ -39,10 +39,11 @@ def get_basic_info(filename):
     with tables.open_file(filename, 'r') as f:
         # Get first row of table "vdmscan" to save scan conditions that are constant thorugh the scan
         scan_info = pd.DataFrame([list(f.root.vdmscan[0])], columns=f.root.vdmscan.colnames)
-        scan_info['time'] = pd.to_datetime(scan_info['timestampsec'], unit='s').dt.strftime('%d.%m.%Y, %H:%M:%S')
+        scan_info['time'] = pd.to_datetime(scan_info['timestampsec'], unit='s').dt.strftime('%d.%m.%Y %H:%M:%S')
         #scan_info['ip'] = scan_info['ip'].apply(lambda ip: [i for i,b in enumerate(bin(ip)[::-1]) if b == '1']) # Binary to dec to list all scanning IPs
         scan_info['energy'] = float("%.3g" % f.root.scan5_beam[0]['egev'])
-    return scan_info[['time', 'fillnum', 'runnum', 'energy', 'ip', 'bstar5', 'xingHmurad']]
+        scan_info['filename'] = Path(filename).name
+    return scan_info[['filename', 'time', 'fillnum', 'runnum', 'energy', 'ip', 'bstar5', 'xingHmurad']]
 
 
 def get_scan_info(filename):
@@ -182,7 +183,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 new.insert(0, 'plane', plane)
                 new.insert(0, 'fit', fit)
                 new.insert(0, 'correction', correction)
-                new.insert(0, 'luminometer', luminometer)
+                new.insert(0, 'luminometer', utl.get_nice_name_for_luminometer(luminometer))
                 new.insert(0, 'filename', Path(filename).stem)
 
                 fit_results = new if b == 0 and p == 0 else pd.concat([fit_results, new], ignore_index=True)
@@ -266,8 +267,7 @@ def main(args) -> None:
                 rate_and_beam_filename = f'output/data/data_{Path(filename).stem}.csv'
 
                 scan_info = get_basic_info(filename)
-                print(f'\n\n{Path(filename).stem}')
-                print(f'\n{scan_info.to_string(index=False)}')
+                print(f'\n{scan_info.to_string(index=False)}\n')
                 scan = get_scan_info(filename)
                 if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
                     error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
