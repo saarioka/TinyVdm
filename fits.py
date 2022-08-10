@@ -29,14 +29,12 @@ def polyg2const(x, peak, mean, capsigma, r2, const):
     return polyg6const(x, peak, mean, capsigma, r2, 0, 0, const)
 
 
-@nb.njit()
 def supergconst(x, peak, mean, capsigma, p, const):
     beta = p*2.0
     alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*capsigma
     return const + peak*np.exp(-(np.abs(x-mean)/alpha)**beta)
 
 
-@nb.njit()
 def superg(x, peak, mean, capsigma, p):
     return supergconst(x, peak, mean, capsigma, p, 0)
 

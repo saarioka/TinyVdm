@@ -149,8 +149,8 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                             and ((m.valid and CONFIG['fitting']['adaptive']['require_valid']) or not CONFIG['fitting']['adaptive']['require_valid']) \
                             and ((m.accurate and CONFIG['fitting']['adaptive']['require_accurate']) or not CONFIG['fitting']['adaptive']['require_accurate']):
                             break
-                        debug('Plane %s, BCID %d, fit %s: parameter of merit ({highest_order_param}) %.2e, chi2 %.2e, valid %d, accurate %d',
-                              plane, bcid, used_fit, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
+                        debug('Plane %s, BCID %d, fit %s: parameter of merit (%s) %.2e, chi2 %.2e, valid %d, accurate %d',
+                              plane, bcid, used_fit, highest_order_param, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
 
                     debug('Plane %s, BCID %d: using fit %s', plane, bcid, used_fit)
                 else:
