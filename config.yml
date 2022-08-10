@@ -16,12 +16,13 @@ fitting:
     chi2_threshold: 1.0e9
     require_valid: True
     require_accurate: True
+    require_not_at_limit: True
 
   # YAML technicality: floating point numbers need the dot before 'e'
   parameter_limits:
     peak: [0, 10]
     capsigma: [1.e-3, 1]
-    mean: [-1.e-2, 1.e-2]
+    mean: [-1.e-1, 1.e-1]
     peak_ratio: [0, 10]
     capsigma_ratio: [0, null]
     r2: [-0.2, 0.2]
@@ -33,36 +34,36 @@ fitting:
     sg:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
     sgConst:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       const: 0
     dg:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       peak_ratio: 0.5
       capsigma_ratio: 2
     dgConst:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       peak_ratio: 0.5
       capsigma_ratio: 2
       const: 0
     polyG6:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
       r4: 0
       r6: 0
     polyG6Const:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
       r4: 0
       r6: 0
@@ -70,35 +71,35 @@ fitting:
     polyG4:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
       r4: 0
     polyG4Const:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
       r4: 0
       const: 0
     polyG2:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
     polyG2Const:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       r2: 0
       const: 0
     superG:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       p: 1
     superGConst:
       peak: auto
       mean: 0
-      capsigma: 0.2
+      capsigma: auto
       p: 1
       const: 0

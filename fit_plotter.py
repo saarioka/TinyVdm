@@ -60,9 +60,11 @@ class plotter():
         self.ax2.set_xlabel(r'$\Delta$ [mm]')
         self.ax2.minorticks_off()
 
+        self.ax1.get_shared_x_axes().join(self.ax1, self.ax2) # share x-axis
+
         self.handles = {}
 
-    def create_page(self, x, y, yerr, fit, info, covariance=None, *argv):
+    def create_page(self, x, y, yerr, fit, info, covariance, *argv):
         figure_items = []  # save handles here to be able to delete them without affecting template
 
         x_dense = np.linspace(np.min(x), np.max(x))
@@ -74,18 +76,25 @@ class plotter():
         for key, val in self.handles.items():
             if key == 'errorbars':
                 for _, (line, (bottoms, tops), verts) in val.items():
+                    line.set_xdata(x)
                     line.set_ydata(y)
+                    bottoms.set_xdata(x)
                     bottoms.set_ydata(y - yerr)
+                    tops.set_xdata(x)
                     tops.set_ydata(y + yerr)
                     barsy, = verts
                     barsy.set_segments([np.array([[x, yt], [x, yb]]) for x, yt, yb in zip(x, y + yerr, y - yerr)])
             if key == 'lines':
                 for _, line in val.items():
+                    line[0].set_xdata(x_dense)
                     line[0].set_ydata(fits.fit_functions[fit](x_dense, *argv))
             if key == 'residuals':
                 line, (bottoms, tops), verts = val
+                line.set_xdata(x)
                 line.set_ydata(residuals)
+                bottoms.set_xdata(x)
                 bottoms.set_ydata(residuals - 1)
+                tops.set_xdata(x)
                 tops.set_ydata(residuals + 1)
                 barsy, = verts
                 barsy.set_segments([np.array([[x, yt], [x, yb]]) for x, yt, yb in zip(x, residuals + 1, residuals - 1)])
@@ -114,9 +123,7 @@ class plotter():
                             verticalalignment='bottom', horizontalalignment='right'))
 
         # plot without changing xlim
-        lim = list(plt.xlim())
-        figure_items.append(self.ax2.plot(lim, [0, 0], 'k', linewidth=0.5))
-        plt.xlim(lim)
+        figure_items.append(self.ax2.plot([np.min(x), np.max(x)], [0, 0], 'k', linewidth=0.5))
 
         self.ax1.relim()
         self.ax1.autoscale()

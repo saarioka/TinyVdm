@@ -113,6 +113,12 @@ def make_fit(x, y, yerr, fit):
     if initial['peak'] == 'auto':
         initial['peak'] = np.max(y)
 
+    if initial['capsigma'] == 'auto':
+        prob = y / y.sum()
+        mom2 = np.power(x, 2).dot(prob)
+        var = mom2 - initial['mean']**2
+        initial['capsigma'] = np.sqrt(var)
+
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **initial)
 
@@ -123,6 +129,13 @@ def make_fit(x, y, yerr, fit):
     m.migrad(ncall=99999, iterate=100)  # Finds minimum of least_squares function
     m.hesse()  # Uncertainties
     return m
+
+
+def parameter_at_limit(m) -> bool:
+    for value, limit in zip([*m.values], [*m.limits]):
+        if value in limit:
+            return True
+    return False
 
 
 def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, correction, fit):
@@ -144,10 +157,12 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                         if used_fit == 'sg':
                             break
                         limits = CONFIG['fitting']['adaptive']['parameters_significance_threshold'][highest_order_param]
+
                         if limits[0] < np.abs(m.values[highest_order_param]) < limits[1] \
                             and chi2 < float(CONFIG['fitting']['adaptive']['chi2_threshold']) \
-                            and ((m.valid and CONFIG['fitting']['adaptive']['require_valid']) or not CONFIG['fitting']['adaptive']['require_valid']) \
-                            and ((m.accurate and CONFIG['fitting']['adaptive']['require_accurate']) or not CONFIG['fitting']['adaptive']['require_accurate']):
+                            and (m.valid or not CONFIG['fitting']['adaptive']['require_valid']) \
+                            and (m.accurate or not CONFIG['fitting']['adaptive']['require_accurate']) \
+                            and (not parameter_at_limit(m) or not CONFIG['fitting']['adaptive']['require_not_at_limit']):
                             break
                         debug('Plane %s, BCID %d, fit %s: parameter of merit (%s) %.2e, chi2 %.2e, valid %d, accurate %d',
                               plane, bcid, used_fit, highest_order_param, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
@@ -223,7 +238,7 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
         return lumi.merge(val, how='outer', on='bcid')
 
     except Exception:
-        traceback.print_exc()
+        error(traceback.format_exc())
         return pd.DataFrame()
 
 
@@ -251,7 +266,8 @@ def main(args) -> None:
                 rate_and_beam_filename = f'output/data/data_{Path(filename).stem}.csv'
 
                 scan_info = get_basic_info(filename)
-                print(scan_info.to_string(index=False))
+                print(f'\n\n{Path(filename).stem}')
+                print(f'\n{scan_info.to_string(index=False)}')
                 scan = get_scan_info(filename)
                 if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
                     error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
@@ -288,17 +304,15 @@ def main(args) -> None:
 
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
 
-                summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
+                summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean().reset_index()
                 # This most likely will not fit into the terminal, but pandas cuts the rows from the middle, causing the things in the beginning and end to be shown
                 # (cutting out mean which is probably not the most relevant)
-                print(summary[['sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2',
-                      'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
+                print(f"\n{summary[['luminometer', 'correction', 'fit', 'sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2', 'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']].to_string(index=False)}")
 
                 debug('Time elapsed: %.1fs (results ready)', time.perf_counter() - START_TIME)
 
             except Exception:
-                print(filename + ':')
-                traceback.print_exc()
+                error(traceback.format_exc())
 
         try:
             summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
@@ -306,6 +320,7 @@ def main(args) -> None:
             error('No result files created')
             return
 
+        print('All files:')
         print(summary[['sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2',
                       'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
         summary.reset_index(inplace=True)
