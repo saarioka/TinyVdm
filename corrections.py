@@ -1,7 +1,7 @@
 """
 Calculate and apply corrections
 """
-from logging import info
+from logging import info, error
 
 import tables
 import matplotlib.pyplot as plt
@@ -15,6 +15,9 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
     corrected_rate_and_beam.correction = 'background'
     with tables.open_file(filename, 'r') as f:
         filled_noncolliding = np.nonzero(np.logical_xor(f.root.scan5_beam[0]['bxconfig1'], f.root.scan5_beam[0]['bxconfig2']))[0]
+        if np.sum(filled_noncolliding) == 0:
+            error('Background correction specified, but no non-colliding bunches present')
+            return None
         for luminometer in luminometers:
             abort_gap_mask = [*range(3421, 3535)] if 'bcm1f' in luminometer else [*range(3444, 3564)]
 

@@ -79,7 +79,7 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
 
             for luminometer in luminometers:
                 # Rates of colliding bcids for this scan point
-                r = np.array([r['bxraw'][collidable] for r in f.root[luminometer].where(period_of_scanpoint)])
+                r = utl.from_h5(f, luminometer, 'bxraw', period_of_scanpoint, collidable)
                 new_data[luminometer] = r.mean(axis=0)
                 new_data[f'{luminometer}_err'] = stats.sem(r, axis=0)
 
@@ -133,8 +133,12 @@ def make_fit(x, y, yerr, fit):
 
 
 def parameter_at_limit(m) -> bool:
+    def denizb(x, p) -> float:
+        """Round to significant https://stackoverflow.com/questions/18915378/rounding-to-significant-figures-in-numpy"""
+        return float(('%.' + str(p-1) + 'e') % x)
+
     for value, limit in zip([*m.values], [*m.limits]):
-        if value in limit:
+        if denizb(value, 6) in limit:
             return True
     return False
 
@@ -152,21 +156,28 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 yerr = data[f'{luminometer}_normalised_err'].to_numpy()
 
                 if fit == 'adaptive':
-                    for used_fit, highest_order_param in [('dg', 'peak_ratio'), ('polyG6', 'r6'), ('polyG4', 'r4'), ('polyG2', 'r2'), ('sg', None)]:
+                    for used_fit, param_of_merit in CONFIG['fitting']['adaptive']['pool']:
                         m = make_fit(x, y, yerr, used_fit)
                         chi2 = m.fval / (len(x) - m.nfit)
-                        if used_fit == 'sg':
-                            break
-                        limits = CONFIG['fitting']['adaptive']['parameters_significance_threshold'][highest_order_param]
 
-                        if limits[0] < np.abs(m.values[highest_order_param]) < limits[1] \
+                        if param_of_merit is None:
+                            break
+
+                        threshold = CONFIG['fitting']['adaptive']['parameters_significance_threshold'][param_of_merit]
+
+                        at_limit = parameter_at_limit(m)
+                        if at_limit:
+                            debug('values: %s at limit', [*m.values])
+
+                        if threshold[0] < np.abs(m.values[param_of_merit]) < threshold[1] \
                             and chi2 < float(CONFIG['fitting']['adaptive']['chi2_threshold']) \
                             and (m.valid or not CONFIG['fitting']['adaptive']['require_valid']) \
                             and (m.accurate or not CONFIG['fitting']['adaptive']['require_accurate']) \
-                            and (not parameter_at_limit(m) or not CONFIG['fitting']['adaptive']['require_not_at_limit']):
+                            and (not at_limit or not CONFIG['fitting']['adaptive']['require_not_at_limit']):
                             break
+
                         debug('Plane %s, BCID %d, fit %s: parameter of merit (%s) %.2e, chi2 %.2e, valid %d, accurate %d',
-                              plane, bcid, used_fit, highest_order_param, np.abs(m.values[highest_order_param]), chi2, m.valid, m.accurate)
+                              plane, bcid, used_fit, param_of_merit, np.abs(m.values[param_of_merit]), chi2, m.valid, m.accurate)
 
                     debug('Plane %s, BCID %d: using fit %s', plane, bcid, used_fit)
                 else:
@@ -175,6 +186,9 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
 
                 new = pd.DataFrame([m.values], columns=m.parameters) # Store values and errors to dataframe
                 new = pd.concat([new, pd.DataFrame([m.errors], columns=m.parameters).add_suffix('_err')], axis=1) # Add suffix "_err" to errors
+
+                if fit == 'adaptive':
+                    new['used_fit'] = used_fit
 
                 new['valid'] = m.valid
                 new['accurate'] = m.accurate
@@ -300,11 +314,12 @@ def main(args) -> None:
 
                 result = pool.starmap(func=partial(analyse, rate_and_beam, scan, args.pdf, filename, scan_info.fillnum[0], scan_info['energy'][0]*2/1000), iterable=jobs)
                 result = pd.concat(result, ignore_index=True).reset_index(drop=True)
-                result.to_csv(f'output/results/results_{Path(filename).stem}.csv', float_format="%.3e")
+                result.to_csv(f'output/results/result_{Path(filename).stem}.csv', float_format="%.3e")
 
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
 
-                summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean().reset_index()
+                summary = result[(result.valid_1 == 1) & (result.accurate_1 == 1) & (result.valid_2 == 1) & (result.accurate_2 == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean().reset_index()
+
                 # This most likely will not fit into the terminal, but pandas cuts the rows from the middle, causing the things in the beginning and end to be shown
                 # (cutting out mean which is probably not the most relevant)
                 print(f"\n{summary[['luminometer', 'correction', 'fit', 'sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2', 'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']].to_string(index=False)}")
@@ -315,7 +330,7 @@ def main(args) -> None:
                 error(traceback.format_exc())
 
         try:
-            summary = result.groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
+            summary = result_all[(result_all.valid == 1) & (result_all.accurate == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
         except UnboundLocalError:
             error('No result files created')
             return
@@ -325,7 +340,7 @@ def main(args) -> None:
                       'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
         summary.reset_index(inplace=True)
 
-        result_all.to_csv('output/result.csv', index=False, float_format="%.3e")
+        result_all.to_csv('output/results.csv', index=False, float_format="%.3e")
         summary.to_csv('output/summary.csv', index=False, float_format="%.3e")
 
 

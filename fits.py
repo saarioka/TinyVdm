@@ -24,11 +24,6 @@ def dg(x, peak, mean, capsigma, peak_ratio, capsigma_ratio):
     return dgconst(x, peak, mean, capsigma, peak_ratio, capsigma_ratio, 0)
 
 
-@nb.njit()
-def polyg2const(x, peak, mean, capsigma, r2, const):
-    return polyg6const(x, peak, mean, capsigma, r2, 0, 0, const)
-
-
 def supergconst(x, peak, mean, capsigma, p, const):
     beta = p*2.0
     alpha = np.sqrt(2*np.pi)*beta / (2*gamma(1.0/beta))*capsigma
@@ -64,6 +59,11 @@ def polyg4const(x, peak, mean, capsigma, r2, r4, const):
 @nb.njit()
 def polyg2(x, peak, mean, capsigma, r2):
     return polyg6const(x, peak, mean, capsigma, r2, 0, 0, 0)
+
+
+@nb.njit()
+def polyg2const(x, peak, mean, capsigma, r2, const):
+    return polyg6const(x, peak, mean, capsigma, r2, 0, 0, const)
 
 
 # Each function needs a mapping from string given as a parameter

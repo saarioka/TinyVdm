@@ -8,12 +8,17 @@ plotting:
 # Fits
 fitting:
   adaptive:
+    pool:
+      - [dg, peak_ratio]
+      - [polyG4, r4]
+      - [polyG2, r2]
+      - [sg, null]
     parameters_significance_threshold:
+      peak_ratio: [0.1, 0.9]
       r2: [-1.e+9, 1.e+9]
       r4: [-1.e+9, 1.e+9]
       r6: [-1.e+9, 1.e+9]
-      peak_ratio: [0.1, 0.9]
-    chi2_threshold: 1.0e9
+    chi2_threshold: 1.0e7
     require_valid: True
     require_accurate: True
     require_not_at_limit: True
@@ -24,7 +29,7 @@ fitting:
     capsigma: [1.e-3, 1]
     mean: [-1.e-1, 1.e-1]
     peak_ratio: [0, 10]
-    capsigma_ratio: [0, null]
+    capsigma_ratio: [0, 9]
     r2: [-0.2, 0.2]
     r4: [-0.2, 0.2]
     r6: [-0.2, 0.2]
