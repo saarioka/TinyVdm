@@ -2,6 +2,7 @@ runtime:
   max_threads: 'max'  # int | 'max', where 'max' means the number of cores on pc
 
 plotting:
+  max_plotted_bcids: 100
   fit_uncertainty: False  # A bit slow
   log_plot: True  # in addition to lin
 

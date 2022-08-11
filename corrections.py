@@ -2,6 +2,7 @@
 Calculate and apply corrections
 """
 from logging import info, error
+from pathlib import Path
 
 import tables
 import matplotlib.pyplot as plt
@@ -10,7 +11,7 @@ from scipy import stats
 
 import utilities as utl
 
-def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
+def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=False):
     corrected_rate_and_beam = rate_and_beam.copy()
     corrected_rate_and_beam.correction = 'background'
     with tables.open_file(filename, 'r') as f:
@@ -24,15 +25,16 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers):
             rate_nc = utl.from_h5(f, luminometer, 'bxraw', mask=filled_noncolliding)
             rate_ag = utl.from_h5(f, luminometer, 'bxraw', mask=abort_gap_mask)
 
-            fig, ax = plt.subplots()
-            ax.scatter(filled_noncolliding, rate_nc.mean(axis=0), 75, label='Non-colliding')
-            ax.scatter(abort_gap_mask, rate_ag.mean(axis=0), 75, label='Abort gap')
-            ax.set_xlabel('BCID')
-            ax.set_ylabel('Rate')
-            fig.suptitle(f'Background, {utl.get_nice_name_for_luminometer(luminometer)}')
-            fig.legend()
-            fig.tight_layout()
-            fig.savefig(f'output/figures/bkg_{utl.get_nice_name_for_luminometer(luminometer)}.pdf')
+            if plot:
+                fig, ax = plt.subplots()
+                ax.scatter(filled_noncolliding, rate_nc.mean(axis=0), 75, label='Non-colliding')
+                ax.scatter(abort_gap_mask, rate_ag.mean(axis=0), 75, label='Abort gap')
+                ax.set_xlabel('BCID')
+                ax.set_ylabel('Rate')
+                fig.suptitle(f'Background, {utl.get_nice_name_for_luminometer(luminometer)}')
+                fig.legend()
+                fig.tight_layout()
+                fig.savefig(f'output/figures/background/bkg_{Path(filename).stem}_{utl.get_nice_name_for_luminometer(luminometer)}.pdf')
 
             rate_nc = rate_nc[rate_nc >= 0]
             rate_ag = rate_ag[rate_ag >= 0]

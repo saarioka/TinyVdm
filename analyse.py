@@ -213,7 +213,10 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                     fit_info = [info.replace('capsigma', r'$\Sigma$') for info in fit_info]
                     fit_info = '\n'.join(fit_info)
 
-                    plotter.create_page(x, y, yerr, used_fit, fit_info, m.covariance, *m.values)
+                    if b < CONFIG['plotting']['max_plotted_bcids']:
+                        plotter.create_page(x, y, yerr, used_fit, fit_info, m.covariance, *m.values)
+                    elif p == 1:
+                        plotter.close_pdf()
 
         debug('Time elapsed: %.1fs (fitting done)', time.perf_counter() - START_TIME)
 
@@ -268,7 +271,7 @@ def main(args) -> None:
     corrections = args.corrections.split(',')
     fitfunctions = args.fit.split(',')
 
-    for folder in ('data', 'results', 'fits', 'figures'):
+    for folder in ('data', 'results', 'fits', 'figures/background'):
         os.makedirs(f'output/{folder}', exist_ok=True)
 
     # Constant parameters are passed with partial and iterables as a list
@@ -281,7 +284,7 @@ def main(args) -> None:
                 rate_and_beam_filename = f'output/data/data_{Path(filename).stem}.csv'
 
                 scan_info = get_basic_info(filename)
-                print(f'\n{scan_info.to_string(index=False)}\n')
+                print(f'\n\n{scan_info.to_string(index=False)}\n')
                 scan = get_scan_info(filename)
                 if scan.shape[0] < 10:  # less than 5 scan steps per scan -> problems
                     error(f'Found only {scan.shape[0]} scan steps (both planes total), skipping')
@@ -294,7 +297,7 @@ def main(args) -> None:
                     rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
 
                     if 'background' in corrections:
-                        bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers)
+                        bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=True)
                         rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
                     apply_rate_normalisation(rate_and_beam, luminometers)
@@ -330,7 +333,7 @@ def main(args) -> None:
                 error(traceback.format_exc())
 
         try:
-            summary = result_all[(result_all.valid == 1) & (result_all.accurate == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
+            summary = result_all[(result.valid_1 == 1) & (result.accurate_1 == 1) & (result.valid_2 == 1) & (result.accurate_2 == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
         except UnboundLocalError:
             error('No result files created')
             return

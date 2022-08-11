@@ -9,3 +9,4 @@ scipy
 jacobi
 yaml
 pandasgui
+numba-scipy
