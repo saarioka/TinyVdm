@@ -7,9 +7,11 @@ from pathlib import Path
 import tables
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 import utilities as utl
+
 
 def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=False):
     corrected_rate_and_beam = rate_and_beam.copy()
@@ -49,6 +51,14 @@ def get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=False)
             rate_and_beam[luminometer] -= bkg
             rate_and_beam[f'{luminometer}_err'] = np.sqrt(rate_and_beam[f'{luminometer}_err']**2 + bkg_err**2)
     return corrected_rate_and_beam
+
+
+def apply_peak_correction(df: pd.DataFrame) -> None:
+    p2p_1 = np.exp(df.mean_2**2/(2*(1e-3*df.capsigma_2)**2))
+    p2p_2 = np.exp(df.mean_1**2/(2*(1e-3*df.capsigma_1)**2))
+    df['p2p'] = p2p_1*p2p_2
+    df.sigvis *= df['p2p']
+    print(f'\nMean peak correction in first plane: {p2p_1.mean():.3f}, second plane: {p2p_2.mean():.3f} -> avg. multiplier of {df.p2p.mean():.3f} to sigvis')
 
 
 def get_fbct_to_dcct_correction_factors(f, period_of_scanpoint):

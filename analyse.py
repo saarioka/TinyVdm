@@ -21,11 +21,8 @@ from iminuit.cost import LeastSquares
 
 import fits
 import fit_plotter
+import corrections
 import utilities as utl
-from corrections import get_bkg_from_noncolliding, \
-    get_fbct_to_dcct_correction_factors, \
-    apply_beam_current_normalisation, \
-    apply_rate_normalisation
 
 pd.set_option('precision', 3)
 
@@ -83,7 +80,7 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
                 new_data[luminometer] = r.mean(axis=0)
                 new_data[f'{luminometer}_err'] = stats.sem(r, axis=0)
 
-            new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = get_fbct_to_dcct_correction_factors(f, period_of_scanpoint)
+            new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = corrections.get_fbct_to_dcct_correction_factors(f, period_of_scanpoint)
 
             new_data.insert(0, 'correction', 'none')
             new_data.insert(0, 'bcid', collidable + 1)  # Move to 1-indexed values of BCID
@@ -268,7 +265,7 @@ def main(args) -> None:
 
     filenames = sorted(list(filter(file_has_data, args.files)))
     luminometers = args.luminometers.split(',')
-    corrections = args.corrections.split(',')
+    applied_correction = args.corrections.split(',')
     fitfunctions = args.fit.split(',')
 
     for folder in ('data', 'results', 'fits', 'figures/background'):
@@ -276,7 +273,7 @@ def main(args) -> None:
 
     # Constant parameters are passed with partial and iterables as a list
     # Running for all luminometers in parallel.
-    n_threads = min(len(luminometers) * len(corrections) * len(fitfunctions), CONFIG['runtime']['max_threads'] if CONFIG['runtime']['max_threads'].isdigit() else multiprocessing.cpu_count())
+    n_threads = min(len(luminometers) * len(applied_correction) * len(fitfunctions), CONFIG['runtime']['max_threads'] if CONFIG['runtime']['max_threads'].isdigit() else multiprocessing.cpu_count())
     debug('Time elapsed: %.1fs (setup)', time.perf_counter() - START_TIME)
     with multiprocessing.Pool(n_threads) as pool:
         for fn, filename in enumerate(filenames):
@@ -296,14 +293,14 @@ def main(args) -> None:
                 else:
                     rate_and_beam = get_beam_current_and_rates(filename, scan, luminometers)
 
-                    if 'background' in corrections:
-                        bkg = get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=True)
+                    if 'background' in applied_correction:
+                        bkg = corrections.get_bkg_from_noncolliding(filename, rate_and_beam, luminometers, plot=True)
                         rate_and_beam = pd.concat([rate_and_beam, bkg], axis=0, ignore_index=True)
 
-                    apply_rate_normalisation(rate_and_beam, luminometers)
+                    corrections.apply_rate_normalisation(rate_and_beam, luminometers)
 
                     if not args.no_fbct_dcct:
-                        apply_beam_current_normalisation(rate_and_beam)
+                        corrections.apply_beam_current_normalisation(rate_and_beam)
 
                     rate_and_beam.to_csv(rate_and_beam_filename, index=False, float_format="%.3e")
 
@@ -311,12 +308,17 @@ def main(args) -> None:
 
                 jobs = []
                 for l in luminometers:
-                    for c in corrections:
+                    for c in applied_correction:
                         for f in fitfunctions:
                             jobs.append((l, c, f))
 
                 result = pool.starmap(func=partial(analyse, rate_and_beam, scan, args.pdf, filename, scan_info.fillnum[0], scan_info['energy'][0]*2/1000), iterable=jobs)
+
                 result = pd.concat(result, ignore_index=True).reset_index(drop=True)
+
+                if args.peak_correction:
+                    corrections.apply_peak_correction(result)
+
                 result.to_csv(f'output/results/result_{Path(filename).stem}.csv', float_format="%.3e")
 
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
@@ -333,7 +335,7 @@ def main(args) -> None:
                 error(traceback.format_exc())
 
         try:
-            summary = result_all[(result.valid_1 == 1) & (result.accurate_1 == 1) & (result.valid_2 == 1) & (result.accurate_2 == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
+            summary = result_all[(result_all.valid_1 == 1) & (result_all.accurate_1 == 1) & (result_all.valid_2 == 1) & (result_all.accurate_2 == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean()
         except UnboundLocalError:
             error('No result files created')
             return
@@ -352,6 +354,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--luminometers', type=str, help='Luminometer name, separated by comma', required=True)
     parser.add_argument('-nofd', '--no_fbct_dcct', help='Do NOT calibrate beam current', action='store_true')
     parser.add_argument('-c', '--corrections', type=str, help='Which corrections to apply (comma separated)', default='none')
+    parser.add_argument('-p2p', '--peak_correction', action='store_true', help='Peak correction')
     parser.add_argument('-pdf', '--pdf', help='Create fit PDFs', action='store_true')
     parser.add_argument('-fit', type=str, help='Fit function, give multiple by separating by comma', choices=list(fits.fit_functions.keys()).append('adaptive'), default='sg')
     parser.add_argument('-ac', '--allow_cache', action='store_true', help='Allow the use of cached data values (make sure to use the same arguments as before)')
