@@ -84,6 +84,7 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
 
             new_data.insert(0, 'correction', 'none')
             new_data.insert(0, 'bcid', collidable + 1)  # Move to 1-indexed values of BCID
+            new_data.insert(0, 'leading', [bcid+1 not in collidable for bcid in collidable])
             new_data.insert(0, 'sep', row.sep)
             new_data.insert(0, 'plane', row.nominal_sep_plane)
 
