@@ -18,6 +18,7 @@ import numpy as np
 from scipy import stats
 from iminuit import Minuit
 from iminuit.cost import LeastSquares
+from scipy.optimize import minimize
 
 import fits
 import fit_plotter
@@ -83,8 +84,8 @@ def get_beam_current_and_rates(filename,  scan, luminometers):
             new_data['fbct_dcct_fraction_b1'], new_data['fbct_dcct_fraction_b2'] = corrections.get_fbct_to_dcct_correction_factors(f, period_of_scanpoint)
 
             new_data.insert(0, 'correction', 'none')
-            new_data.insert(0, 'bcid', collidable + 1)  # Move to 1-indexed values of BCID
             new_data.insert(0, 'leading', [bcid+1 not in collidable for bcid in collidable])
+            new_data.insert(0, 'bcid', collidable + 1)  # Move to 1-indexed values of BCID
             new_data.insert(0, 'sep', row.sep)
             new_data.insert(0, 'plane', row.nominal_sep_plane)
 
@@ -109,14 +110,17 @@ def make_fit(x, y, yerr, fit):
 
     initial = CONFIG['fitting']['parameter_initial_values'][fit]
 
-    if initial['peak'] == 'auto':
-        initial['peak'] = np.max(y)
+    for variable in ('peak', 'A'):
+        if variable in initial.keys() and initial[variable] == 'auto':
+            initial[variable] = np.max(y)
 
-    if initial['capsigma'] == 'auto':
-        prob = y / y.sum()
-        mom2 = np.power(x, 2).dot(prob)
-        var = mom2 - initial['mean']**2
-        initial['capsigma'] = np.sqrt(var)
+    for variable in ('capsigma', 'sigma1', 'sigma2'):
+        if variable in initial.keys() and initial[variable] == 'auto':
+            prob = y / y.sum()
+            mom2 = np.power(x, 2).dot(prob)
+            mean = initial['mean1'] if fit == 'twoMuDg' else initial['mean']
+            var = mom2 - mean**2
+            initial[variable] = np.sqrt(var)
 
     # Give the initial values defined in "fit_functions"
     m = Minuit(least_squares, **initial)
@@ -127,6 +131,7 @@ def make_fit(x, y, yerr, fit):
 
     m.migrad(ncall=99999, iterate=100)  # Finds minimum of least_squares function
     m.hesse()  # Uncertainties
+
     return m
 
 
@@ -188,6 +193,28 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                 if fit == 'adaptive':
                     new['used_fit'] = used_fit
 
+                if used_fit == 'twoMuDg':
+                    def cost(x, A, frac, sigma1, sigma2, mean1, mean2):
+                        return -A *(frac * fits.sg(x, 1, mean1, sigma1) + (1 - frac) * fits.sg(x, 1, mean2, sigma2))
+
+                    opt = minimize(cost,
+                        0,
+                        args=(m.values['A'], m.values['frac'], m.values['sigma1'], m.values['sigma2'], m.values['mean1'], m.values['mean2']), method="Nelder-Mead",
+                        options={"xatol": 1e-07}
+                    )
+
+                    new['mean'] = opt["x"][0]
+                    new['mean_err'] = np.max([new.mean1_err, new.mean2_err])  # Better ways are welcome
+
+                    new['peak'] = -opt["fun"]
+                    new['peak_err'] = m.errors['A']  # A is kind of peak
+
+                    new['capsigma'] = m.values['A'] * (m.values['frac'] * m.values['sigma1'] + (1 - m.values['frac']) * m.values['sigma2']) / new.peak
+
+                    capsigma_peak_err = new.frac ** 2 * new.sigma1_err ** 2 + (1 - new.frac) ** 2 * new.sigma2_err ** 2  # assuming frac_err == 0
+
+                    new['capsigma_err'] = new.capsigma * np.sqrt((new.A_err / new.A) ** 2 + (new.peak_err / new.peak) ** 2 + capsigma_peak_err / (new.frac * new.sigma1 + (1 - new.frac) * new.sigma2) ** 2)
+
                 new['valid'] = m.valid
                 new['accurate'] = m.accurate
                 new['chi2'] = m.fval / (len(x) - m.nfit)
@@ -209,6 +236,10 @@ def analyse(rate_and_beam, scan, pdf, filename, fill, energy, luminometer, corre
                         fit_info.append(f'{param} = ${fit_plotter.as_si(v):s} \\pm {fit_plotter.as_si(e):s}$')
                     fit_info.append(f'valid: {m.valid}, accurate: {m.accurate}')
                     fit_info = [info.replace('capsigma', r'$\Sigma$') for info in fit_info]
+                    fit_info = [info.replace('sigma1', r'$\sigma_1$') for info in fit_info]
+                    fit_info = [info.replace('sigma2', r'$\sigma_2$') for info in fit_info]
+                    fit_info = [info.replace('mean1', r'$\mu_1$') for info in fit_info]
+                    fit_info = [info.replace('mean2', r'$\mu_2$') for info in fit_info]
                     fit_info = '\n'.join(fit_info)
 
                     if b < CONFIG['plotting']['max_plotted_bcids']:
@@ -324,11 +355,15 @@ def main(args) -> None:
 
                 result_all = result if fn == 0 else pd.concat([result_all, result], ignore_index=True)
 
-                summary = result[(result.valid_1 == 1) & (result.accurate_1 == 1) & (result.valid_2 == 1) & (result.accurate_2 == 1)].groupby(['filename', 'luminometer', 'correction', 'fit']).mean().reset_index()
+                good = result[(result.valid_1 == 1) & (result.accurate_1 == 1) & (result.valid_2 == 1) & (result.accurate_2 == 1)]
+                summary = good.groupby(['luminometer', 'correction', 'fit']).mean().reset_index()
+
+                print('\nPercentage of BCIDs with good fits:')
+                print((100 * good.groupby(["luminometer", "correction", "fit"]).count()['bcid'] / len(result.bcid.unique())).to_string())
 
                 # This most likely will not fit into the terminal, but pandas cuts the rows from the middle, causing the things in the beginning and end to be shown
                 # (cutting out mean which is probably not the most relevant)
-                print(f"\n{summary[['luminometer', 'correction', 'fit', 'sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2', 'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']].to_string(index=False)}")
+                print(f"\n{summary[['luminometer', 'correction', 'fit', 'sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2', 'mean_1', 'mean_err_1', 'mean_2', 'mean_err_2', 'chi2_1', 'chi2_2']].to_string(index=False)}")
 
                 debug('Time elapsed: %.1fs (results ready)', time.perf_counter() - START_TIME)
 
@@ -343,7 +378,7 @@ def main(args) -> None:
 
         print('All files:')
         print(summary[['sigvis', 'sigvis_err', 'capsigma_1', 'capsigma_err_1', 'capsigma_2', 'capsigma_err_2',
-                      'mean_1', 'mean_err_1', 'mean_err_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
+                      'mean_1', 'mean_err_1', 'mean_2', 'mean_err_2', 'chi2_1', 'chi2_2']])
         summary.reset_index(inplace=True)
 
         result_all.to_csv('output/results.csv', index=False, float_format="%.3e")

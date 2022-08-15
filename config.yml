@@ -6,34 +6,41 @@ plotting:
   fit_uncertainty: False  # A bit slow
   log_plot: True  # in addition to lin
 
-# Fits
+# YAML technicality: floating point numbers need the dot before 'e' and sign after 'e'
 fitting:
   adaptive:
     pool:
-      - [dg, peak_ratio]
+      - [twoMuDg, mean2]
+      - [dg, frac]
       - [polyG4, r4]
       - [polyG2, r2]
       - [sg, null]
+
+    # Has no effect if parameter_limit is stricter
     parameters_significance_threshold:
-      peak_ratio: [0.1, 0.9]
+      frac: [0.1, 0.9]
       r2: [-1.e+9, 1.e+9]
       r4: [-1.e+9, 1.e+9]
       r6: [-1.e+9, 1.e+9]
+      mean2: [1.e-3, 1.e+9]
     chi2_threshold: 1.0e7
     require_valid: True
     require_accurate: True
     require_not_at_limit: True
 
-  # YAML technicality: floating point numbers need the dot before 'e'
   parameter_limits:
     peak: [0, 10]
     capsigma: [1.e-3, 1]
     mean: [-1.e-1, 1.e-1]
-    peak_ratio: [0, 10]
-    capsigma_ratio: [0, 9]
+    frac: [0, 1]
+    capsigma_ratio: [0, 1]
     r2: [-0.2, 0.2]
     r4: [-0.2, 0.2]
     r6: [-0.2, 0.2]
+    sigma1: [0.01, 10]
+    sigma2: [0.01, 10]
+    mean1: [-1.e-1, 1.e-1]
+    mean2: [-1.e-1, 1.e-1]
 
   # peak limit auto = nominal head-on rate
   parameter_initial_values:
@@ -50,14 +57,14 @@ fitting:
       peak: auto
       mean: 0
       capsigma: auto
-      peak_ratio: 0.5
-      capsigma_ratio: 2
+      frac: 0.5
+      capsigma_ratio: 0.9
     dgConst:
       peak: auto
       mean: 0
       capsigma: auto
-      peak_ratio: 0.5
-      capsigma_ratio: 2
+      frac: 0.5
+      capsigma_ratio: 0.9
       const: 0
     polyG6:
       peak: auto
@@ -109,3 +116,10 @@ fitting:
       capsigma: auto
       p: 1
       const: 0
+    twoMuDg:
+      A: auto
+      frac: 0.5
+      sigma1: auto
+      sigma2: auto
+      mean1: 0
+      mean2: 0

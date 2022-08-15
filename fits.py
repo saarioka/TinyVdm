@@ -14,14 +14,14 @@ def sg(x, peak, mean, capsigma):
 
 
 @nb.njit()
-def dgconst(x, peak, mean, capsigma, peak_ratio, capsigma_ratio, const):
-    c = capsigma / (peak_ratio*capsigma_ratio + 1 - peak_ratio)
-    return const + sg(x, peak_ratio*peak, mean, capsigma_ratio*c) + sg(x, (1-peak_ratio)*peak, mean, c)
+def dgconst(x, peak, mean, capsigma, frac, capsigma_ratio, const):
+    c = capsigma / (frac * capsigma_ratio + 1 - frac)
+    return const + peak * (sg(x, frac, mean, capsigma_ratio*c) + sg(x, 1-frac, mean, c))
 
 
 @nb.njit()
-def dg(x, peak, mean, capsigma, peak_ratio, capsigma_ratio):
-    return dgconst(x, peak, mean, capsigma, peak_ratio, capsigma_ratio, 0)
+def dg(x, peak, mean, capsigma, frac, capsigma_ratio):
+    return dgconst(x, peak, mean, capsigma, frac, capsigma_ratio, 0)
 
 
 def supergconst(x, peak, mean, capsigma, p, const):
@@ -66,6 +66,11 @@ def polyg2const(x, peak, mean, capsigma, r2, const):
     return polyg6const(x, peak, mean, capsigma, r2, 0, 0, const)
 
 
+@nb.njit()
+def twomudg(x, A, frac, sigma1, sigma2, mean1, mean2):
+    return A *(frac * sg(x, 1, mean1, sigma1) + (1 - frac) * sg(x, 1, mean1 + mean2, sigma2))
+
+
 # Each function needs a mapping from string given as a parameter
 fit_functions = {
     'sg':          sg,
@@ -79,6 +84,7 @@ fit_functions = {
     'polyG2':      polyg2,
     'polyG2Const': polyg2const,
     'superG':      superg,
-    'superGConst': supergconst
+    'superGConst': supergconst,
+    'twoMuDg':     twomudg
 }
 
