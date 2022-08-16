@@ -16,13 +16,13 @@ fitting:
       - [polyG2, r2]
       - [sg, null]
 
-    # Has no effect if parameter_limit is stricter
+    # These are magnitudes. Has no effect if parameter_limit is stricter
     parameters_significance_threshold:
       frac: [0.1, 0.9]
-      r2: [-1.e+9, 1.e+9]
-      r4: [-1.e+9, 1.e+9]
-      r6: [-1.e+9, 1.e+9]
-      mean2: [1.e-3, 1.e+9]
+      r2: [1.e-7, 1.e+9]
+      r4: [1.e-7, 1.e+9]
+      r6: [1.e-7, 1.e+9]
+      mean2: [1.e-2, 1.e+9]
     chi2_threshold: 1.0e7
     require_valid: True
     require_accurate: True

@@ -3,12 +3,18 @@ import logging
 import numpy as np
 
 
-def from_h5(f, table, what, condition=None, mask=None):
+def from_h5(f, table: str, what: str, condition: str = None, mask: str = None) -> np.array:
     """Wrapper for data retrieval from H5 files"""
     if mask is None:
-        return np.array([row[what] for row in f.root[table]] if condition is None else [row[what] for row in f.root[table].where(condition)])
+        if condition is None:
+            return np.array([row[what] for row in f.root[table]])
+        else:
+            return np.array([row[what] for row in f.root[table].where(condition)])
     else:
-        return np.array([row[what][mask] for row in f.root[table]] if condition is None else [row[what][mask] for row in f.root[table].where(condition)])
+        if condition is None:
+            return np.array([row[what][mask] for row in f.root[table]])
+        else:
+            return np.array([row[what][mask] for row in f.root[table].where(condition)])
 
 
 def get_nice_name_for_luminometer(luminometer) -> str:

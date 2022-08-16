@@ -143,6 +143,9 @@ class plotter():
                 item.remove()
 
     def close_pdf(self):
-        self.pdf.close()
-        plt.close(self.fig)
+        try:
+            self.pdf.close()
+            plt.close(self.fig)
+        except AttributeError:  # Nonetype
+            pass
 
